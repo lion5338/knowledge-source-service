@@ -1,0 +1,29 @@
+{
+  "name": "knowledge-source-service",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=18.19.1"
+  },
+  "scripts": {
+    "dev": "next dev --port 3200",
+    "dev:host": "next dev --hostname 0.0.0.0 --port 3200",
+    "build": "next build",
+    "start": "next start -p 3200",
+    "lint": "eslint",
+    "db:migrate": "node scripts/db/migrate.mjs",
+    "import:ai-workflow-knowledge": "node scripts/import/import-ai-workflow-knowledge.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "next": "^15.5.21",
+    "pg": "^8.22.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.6",
+    "eslint": "^9",
+    "eslint-config-next": "^15.5.21"
+  }
+}
