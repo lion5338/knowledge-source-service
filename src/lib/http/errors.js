@@ -17,6 +17,10 @@ export function notFound(message) {
   return new HttpError(message, { status: 404, code: "not_found", type: "not_found" });
 }
 
+export function unauthorized() {
+  return new HttpError("Unauthorized.", { status: 401, code: "unauthorized", type: "auth_error" });
+}
+
 export function routeError(error) {
   const status = error instanceof HttpError ? error.status : 500;
   return Response.json(

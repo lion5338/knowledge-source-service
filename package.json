@@ -9,8 +9,11 @@
     "dev": "next dev --port 3200",
     "dev:host": "next dev --hostname 0.0.0.0 --port 3200",
     "build": "next build",
+    "build:isolated": "node scripts/build-isolated.mjs",
     "start": "next start -p 3200",
+    "test": "node --experimental-default-type=module --test test",
     "lint": "eslint",
+    "openapi:validate": "node scripts/openapi/validate-openapi.mjs",
     "db:migrate": "node scripts/db/migrate.mjs",
     "import:ai-workflow-knowledge": "node scripts/import/import-ai-workflow-knowledge.mjs"
   },
@@ -19,9 +22,12 @@
     "next": "^15.5.21",
     "pg": "^8.22.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "redis": "^5.12.1",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
     "@eslint/eslintrc": "^3.3.6",
     "eslint": "^9",
     "eslint-config-next": "^15.5.21"

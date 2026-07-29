@@ -1,8 +1,19 @@
 import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
+import {
+  buildImportSummary,
+  latestImportSummaryArtifactId,
+  latestImportSummaryStoragePath,
+} from "./import-summary.mjs";
+import {
+  buildRuntimeIndexPins,
+  latestRuntimeIndexArtifactId,
+  latestRuntimeIndexStoragePath,
+} from "./runtime-index-pinning.mjs";
 import { aiWorkflowKnowledgeDir, defaultStorageRoot, projectRoot } from "../lib/paths.mjs";
 import { withClient } from "../lib/db.mjs";
+import { invalidateKnowledgeSourceReadCacheAfterImport } from "../lib/read-response-cache-invalidation.mjs";
 
 const storageRoot = path.resolve(process.env.KNOWLEDGE_SOURCE_STORAGE_ROOT ?? defaultStorageRoot);
 const sourceRoot = path.resolve(process.env.AI_WORKFLOW_KNOWLEDGE_DIR ?? aiWorkflowKnowledgeDir);
@@ -40,8 +51,8 @@ function normalizeSourceName(source) {
 }
 
 function artifactIdFor(relativePath) {
-  if (relativePath === "index/knowledge-index.json") {
-    return "runtime-index:latest";
+  if (relativePath === latestRuntimeIndexStoragePath) {
+    return latestRuntimeIndexArtifactId;
   }
   return relativePath
     .replace(/\\/g, "/")
@@ -70,6 +81,22 @@ function artifactTypeFor(relativePath) {
     return "source_registry_config";
   }
   return "knowledge_artifact";
+}
+
+function publishStatusFor(artifactId) {
+  return artifactId === latestRuntimeIndexArtifactId ? "published" : "imported";
+}
+
+async function previousChecksumFor(client, artifactId) {
+  const result = await client.query(
+    `
+      SELECT checksum_sha256
+      FROM knowledge_source_artifacts
+      WHERE artifact_id = $1
+    `,
+    [artifactId],
+  );
+  return result.rows[0]?.checksum_sha256 ?? null;
 }
 
 async function listFiles(dir) {
@@ -141,25 +168,39 @@ async function upsertSources(client, sourcesConfig) {
 }
 
 async function upsertArtifacts(client, copiedFiles) {
+  const artifacts = [];
   for (const filePath of copiedFiles) {
     const relativePath = path.relative(storageRoot, filePath).replace(/\\/g, "/");
+    if (relativePath === latestImportSummaryStoragePath || relativePath.startsWith("index/versions/")) {
+      continue;
+    }
     const checksum = await sha256File(filePath);
     const sourceMatch = relativePath.match(/^raw\/([^/]+)\/([^/]+)\//);
     const normalizedSource = sourceMatch ? normalizeSourceName(sourceMatch[1]) : null;
     const sourceVersion = sourceMatch?.[2] ?? null;
     const artifactId = artifactIdFor(relativePath);
     const contentType = relativePath.endsWith(".jsonl") ? "application/x-jsonlines" : relativePath.endsWith(".md") ? "text/markdown" : "application/json";
+    const publishStatus = publishStatusFor(artifactId);
+    const previousChecksum = await previousChecksumFor(client, artifactId);
+    const runtimeIndexPins =
+      artifactId === latestRuntimeIndexArtifactId
+        ? buildRuntimeIndexPins({
+            checksumSha256: checksum,
+            index: await readJsonIfExists(filePath),
+          })
+        : null;
     await client.query(
       `
         INSERT INTO knowledge_source_artifacts
-          (artifact_id, artifact_type, source, source_version, storage_path, content_type, checksum_sha256, metadata)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          (artifact_id, artifact_type, source, source_version, storage_path, content_type, publish_status, checksum_sha256, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (artifact_id) DO UPDATE SET
           artifact_type = EXCLUDED.artifact_type,
           source = EXCLUDED.source,
           source_version = EXCLUDED.source_version,
           storage_path = EXCLUDED.storage_path,
           content_type = EXCLUDED.content_type,
+          publish_status = EXCLUDED.publish_status,
           checksum_sha256 = EXCLUDED.checksum_sha256,
           metadata = EXCLUDED.metadata,
           updated_at = now()
@@ -171,13 +212,122 @@ async function upsertArtifacts(client, copiedFiles) {
         sourceVersion,
         relativePath,
         contentType,
+        publishStatus,
         checksum,
-        JSON.stringify({
-          imported_from: path.relative(projectRoot, path.join(sourceRoot, relativePath)).replace(/\\/g, "/"),
-        }),
+        JSON.stringify(
+          runtimeIndexPins?.latest_metadata ?? {
+            imported_from: path.relative(projectRoot, path.join(sourceRoot, relativePath)).replace(/\\/g, "/"),
+          },
+        ),
       ],
     );
+    artifacts.push({
+      artifact_id: artifactId,
+      artifact_type: artifactTypeFor(relativePath),
+      storage_path: relativePath,
+      checksum_sha256: checksum,
+      publish_status: publishStatus,
+      previous_checksum_sha256: previousChecksum,
+    });
+    if (runtimeIndexPins) {
+      const pinnedArtifact = await upsertPinnedRuntimeIndexArtifact(client, filePath, checksum, runtimeIndexPins);
+      artifacts.push(pinnedArtifact);
+    }
   }
+  return artifacts;
+}
+
+async function upsertPinnedRuntimeIndexArtifact(client, latestFilePath, checksum, runtimeIndexPins) {
+  const pinnedPath = path.join(storageRoot, runtimeIndexPins.pinned_storage_path);
+  await fs.mkdir(path.dirname(pinnedPath), { recursive: true });
+  await fs.copyFile(latestFilePath, pinnedPath);
+  const previousChecksum = await previousChecksumFor(client, runtimeIndexPins.pinned_artifact_id);
+  await client.query(
+    `
+      INSERT INTO knowledge_source_artifacts
+        (artifact_id, artifact_type, source, source_version, storage_path, content_type, publish_status, checksum_sha256, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ON CONFLICT (artifact_id) DO UPDATE SET
+        artifact_type = EXCLUDED.artifact_type,
+        source = EXCLUDED.source,
+        source_version = EXCLUDED.source_version,
+        storage_path = EXCLUDED.storage_path,
+        content_type = EXCLUDED.content_type,
+        publish_status = EXCLUDED.publish_status,
+        checksum_sha256 = EXCLUDED.checksum_sha256,
+        metadata = EXCLUDED.metadata,
+        updated_at = now()
+    `,
+    [
+      runtimeIndexPins.pinned_artifact_id,
+      "runtime_index",
+      null,
+      null,
+      runtimeIndexPins.pinned_storage_path,
+      "application/json",
+      "published",
+      checksum,
+      JSON.stringify(runtimeIndexPins.pinned_metadata),
+    ],
+  );
+  return {
+    artifact_id: runtimeIndexPins.pinned_artifact_id,
+    artifact_type: "runtime_index",
+    storage_path: runtimeIndexPins.pinned_storage_path,
+    checksum_sha256: checksum,
+    publish_status: "published",
+    previous_checksum_sha256: previousChecksum,
+  };
+}
+
+async function writeImportSummaryReport(summary) {
+  const reportPath = path.join(storageRoot, latestImportSummaryStoragePath);
+  await fs.mkdir(path.dirname(reportPath), { recursive: true });
+  await fs.writeFile(reportPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+  return reportPath;
+}
+
+async function upsertImportSummaryArtifact(client, reportPath) {
+  const checksum = await sha256File(reportPath);
+  const previousChecksum = await previousChecksumFor(client, latestImportSummaryArtifactId);
+  await client.query(
+    `
+      INSERT INTO knowledge_source_artifacts
+        (artifact_id, artifact_type, source, source_version, storage_path, content_type, publish_status, checksum_sha256, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ON CONFLICT (artifact_id) DO UPDATE SET
+        artifact_type = EXCLUDED.artifact_type,
+        source = EXCLUDED.source,
+        source_version = EXCLUDED.source_version,
+        storage_path = EXCLUDED.storage_path,
+        content_type = EXCLUDED.content_type,
+        publish_status = EXCLUDED.publish_status,
+        checksum_sha256 = EXCLUDED.checksum_sha256,
+        metadata = EXCLUDED.metadata,
+        updated_at = now()
+    `,
+    [
+      latestImportSummaryArtifactId,
+      "report_artifact",
+      null,
+      null,
+      latestImportSummaryStoragePath,
+      "application/json",
+      "imported",
+      checksum,
+      JSON.stringify({
+        generated_by: "import-ai-workflow-knowledge",
+      }),
+    ],
+  );
+  return {
+    artifact_id: latestImportSummaryArtifactId,
+    artifact_type: "report_artifact",
+    storage_path: latestImportSummaryStoragePath,
+    checksum_sha256: checksum,
+    publish_status: "imported",
+    previous_checksum_sha256: previousChecksum,
+  };
 }
 
 await fs.mkdir(storageRoot, { recursive: true });
@@ -185,6 +335,7 @@ await fs.cp(sourceRoot, storageRoot, { recursive: true, force: true });
 
 const sourcesConfig = await readJsonIfExists(path.join(sourceRoot, "sources.json"));
 const copiedFiles = await listFiles(storageRoot);
+let importedArtifacts = [];
 
 await withClient(async (client) => {
   await client.query("BEGIN");
@@ -192,7 +343,15 @@ await withClient(async (client) => {
     if (sourcesConfig) {
       await upsertSources(client, sourcesConfig);
     }
-    await upsertArtifacts(client, copiedFiles);
+    const artifactSummaries = await upsertArtifacts(client, copiedFiles);
+    const summary = buildImportSummary({
+      sourceRoot,
+      storageRoot,
+      sourceCount: sourcesConfig?.sources?.length ?? 0,
+      artifacts: artifactSummaries,
+    });
+    const reportPath = await writeImportSummaryReport(summary);
+    const importSummaryArtifact = await upsertImportSummaryArtifact(client, reportPath);
     await client.query(
       `
         INSERT INTO knowledge_source_audit_events (event_type, actor, target_type, target_id, payload)
@@ -206,25 +365,26 @@ await withClient(async (client) => {
         JSON.stringify({
           source_root: sourceRoot,
           storage_root: storageRoot,
-          file_count: copiedFiles.length,
+          file_count: artifactSummaries.length,
+          import_summary: summary,
         }),
       ],
     );
     await client.query("COMMIT");
+    importedArtifacts = [...artifactSummaries, importSummaryArtifact];
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
   }
 });
 
+await invalidateKnowledgeSourceReadCacheAfterImport({
+  artifacts: importedArtifacts,
+});
+
 console.log(
   JSON.stringify(
-    {
-      source_root: sourceRoot,
-      storage_root: storageRoot,
-      file_count: copiedFiles.length,
-      source_count: sourcesConfig?.sources?.length ?? 0,
-    },
+    await readJsonIfExists(path.join(storageRoot, latestImportSummaryStoragePath)),
     null,
     2,
   ),

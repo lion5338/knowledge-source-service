@@ -1,4 +1,4 @@
-import { withClient } from "./pool";
+import { withClient } from "./pool.js";
 
 export async function checkDatabase() {
   try {

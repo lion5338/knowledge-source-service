@@ -1,4 +1,4 @@
-import { readEnv } from "@/lib/config";
+import { readEnv } from "../config.js";
 
 export function getDatabaseConfig() {
   return {

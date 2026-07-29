@@ -1,0 +1,615 @@
+openapi: 3.0.3
+info:
+  title: Knowledge Source Service API
+  version: 0.1.0
+  description: Demo-facing contract for runtime index and artifact read APIs.
+servers:
+  - url: http://localhost:3200
+    description: Local development server
+tags:
+  - name: OpenAPI
+  - name: Runtime Index
+  - name: Artifacts
+paths:
+  /openapi.json:
+    get:
+      tags:
+        - OpenAPI
+      summary: Read the Knowledge Source Service OpenAPI contract.
+      operationId: getOpenApiSpec
+      responses:
+        "200":
+          description: OpenAPI contract as JSON.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/runtime-index/latest:
+    get:
+      tags:
+        - Runtime Index
+      summary: Read the latest runtime index alias and resolved pinned version.
+      operationId: getLatestRuntimeIndex
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Latest runtime index with alias, pinned version, summary, and payload.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            X-Knowledge-Source-Cache:
+              $ref: "#/components/headers/KnowledgeSourceCache"
+            X-Knowledge-Source-Trace-Mode:
+              $ref: "#/components/headers/KnowledgeSourceTraceMode"
+            X-Runtime-Index-Alias-ID:
+              $ref: "#/components/headers/RuntimeIndexAliasId"
+            X-Runtime-Index-Version-ID:
+              $ref: "#/components/headers/RuntimeIndexVersionId"
+            X-Artifact-ID:
+              $ref: "#/components/headers/ArtifactId"
+            X-Artifact-Checksum-SHA256:
+              $ref: "#/components/headers/ArtifactChecksumSha256"
+            X-Artifact-Publish-Status:
+              $ref: "#/components/headers/ArtifactPublishStatus"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeIndexLatestResponse"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /v1/runtime-index/diff:
+    get:
+      tags:
+        - Runtime Index
+      summary: Compare two runtime index versions.
+      operationId: getRuntimeIndexDiff
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Source runtime index artifact id. Must be provided with `to`.
+          example: runtime-index:sha256:from
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Target runtime index artifact id. Must be provided with `from`.
+          example: runtime-index:sha256:to
+      responses:
+        "200":
+          description: Runtime index diff result or insufficient-history result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeIndexDiffResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /v1/artifacts:
+    get:
+      tags:
+        - Artifacts
+      summary: List knowledge source artifacts.
+      operationId: listArtifacts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: artifact_type
+          in: query
+          required: false
+          schema:
+            type: string
+          example: runtime_index
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+          example: marble
+        - name: publish_status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/PublishStatus"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        "200":
+          description: Artifact list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactListResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Error"
+  /v1/artifacts/{artifactId}:
+    get:
+      tags:
+        - Artifacts
+      summary: Read artifact metadata and parsed payload when available.
+      operationId: getArtifact
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ArtifactIdPath"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Artifact metadata plus parsed JSON or text payload.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            X-Knowledge-Source-Cache:
+              $ref: "#/components/headers/KnowledgeSourceCache"
+            X-Artifact-ID:
+              $ref: "#/components/headers/ArtifactId"
+            X-Artifact-Checksum-SHA256:
+              $ref: "#/components/headers/ArtifactChecksumSha256"
+            X-Artifact-Publish-Status:
+              $ref: "#/components/headers/ArtifactPublishStatus"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactPayloadResponse"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /v1/artifacts/{artifactId}/raw:
+    get:
+      tags:
+        - Artifacts
+      summary: Read the raw artifact payload.
+      operationId: getRawArtifact
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ArtifactIdPath"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Raw artifact payload.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            X-Knowledge-Source-Cache:
+              $ref: "#/components/headers/KnowledgeSourceCache"
+            X-Artifact-ID:
+              $ref: "#/components/headers/ArtifactId"
+            X-Artifact-Checksum-SHA256:
+              $ref: "#/components/headers/ArtifactChecksumSha256"
+            X-Artifact-Publish-Status:
+              $ref: "#/components/headers/ArtifactPublishStatus"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+            application/x-jsonlines:
+              schema:
+                type: string
+            text/markdown:
+              schema:
+                type: string
+            text/plain:
+              schema:
+                type: string
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "Optional local/demo service key. When KNOWLEDGE_SOURCE_KEY is configured, call protected endpoints with Authorization: Bearer <key>."
+  parameters:
+    ArtifactIdPath:
+      name: artifactId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: URL-encoded artifact id.
+      example: runtime-index%3Alatest
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Return `304 Not Modified` when the supplied ETag matches the selected artifact checksum.
+      example: '"sha256:c9fc09b0201305301de107dae51ef2b41b5af70423400b42515b8b0ca8f6ac0c"'
+  headers:
+    ETag:
+      description: Strong checksum-based entity tag.
+      schema:
+        type: string
+      example: '"sha256:c9fc09b0201305301de107dae51ef2b41b5af70423400b42515b8b0ca8f6ac0c"'
+    CacheControl:
+      description: HTTP cache policy for the selected response.
+      schema:
+        type: string
+      examples:
+        mutable:
+          value: no-cache
+        immutable:
+          value: public, max-age=31536000, immutable
+    KnowledgeSourceCache:
+      description: Response cache status.
+      schema:
+        type: string
+        enum:
+          - hit
+          - miss
+          - bypass
+    KnowledgeSourceTraceMode:
+      description: How the latest runtime index resolved its read target.
+      schema:
+        type: string
+        enum:
+          - content_addressed_version
+          - legacy_alias_only
+    RuntimeIndexAliasId:
+      description: Mutable runtime index alias artifact id.
+      schema:
+        type: string
+      example: runtime-index:latest
+    RuntimeIndexVersionId:
+      description: Immutable pinned runtime index artifact id when available.
+      schema:
+        type: string
+      example: runtime-index:sha256:c9fc09b0201305301de107dae51ef2b41b5af70423400b42515b8b0ca8f6ac0c
+    ArtifactId:
+      description: Artifact id used for the read target.
+      schema:
+        type: string
+    ArtifactChecksumSha256:
+      description: SHA-256 checksum for the selected read target.
+      schema:
+        type: string
+    ArtifactPublishStatus:
+      description: Publish status for the selected read target.
+      schema:
+        $ref: "#/components/schemas/PublishStatus"
+  responses:
+    NotModified:
+      description: The supplied `If-None-Match` matches the current ETag.
+      headers:
+        ETag:
+          $ref: "#/components/headers/ETag"
+        X-Knowledge-Source-Cache:
+          $ref: "#/components/headers/KnowledgeSourceCache"
+    Error:
+      description: Stable JSON error envelope.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Missing, malformed, or wrong service key.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              message: Unauthorized.
+              type: auth_error
+              code: unauthorized
+              details: null
+  schemas:
+    PublishStatus:
+      type: string
+      enum:
+        - imported
+        - published
+        - validated
+        - deprecated
+    Artifact:
+      type: object
+      required:
+        - artifact_id
+        - artifact_type
+        - storage_path
+        - content_type
+        - publish_status
+        - checksum_sha256
+        - metadata
+      properties:
+        artifact_id:
+          type: string
+        artifact_type:
+          type: string
+        source:
+          type: string
+          nullable: true
+        source_version:
+          type: string
+          nullable: true
+        storage_path:
+          type: string
+        content_type:
+          type: string
+        publish_status:
+          $ref: "#/components/schemas/PublishStatus"
+        record_count:
+          type: integer
+          nullable: true
+        checksum_sha256:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ArtifactListResponse:
+      type: object
+      required:
+        - object
+        - data
+      properties:
+        object:
+          type: string
+          enum:
+            - list
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Artifact"
+    ArtifactPayloadResponse:
+      allOf:
+        - $ref: "#/components/schemas/Artifact"
+        - type: object
+          properties:
+            json:
+              nullable: true
+              oneOf:
+                - type: object
+                  additionalProperties: true
+                - type: array
+                  items: {}
+            text:
+              type: string
+              nullable: true
+    RuntimeIndexAlias:
+      type: object
+      required:
+        - artifact_id
+        - points_to_artifact_id
+        - checksum_sha256
+        - publish_status
+      properties:
+        artifact_id:
+          type: string
+          example: runtime-index:latest
+        points_to_artifact_id:
+          type: string
+          nullable: true
+        checksum_sha256:
+          type: string
+        publish_status:
+          $ref: "#/components/schemas/PublishStatus"
+    RuntimeIndexVersion:
+      type: object
+      nullable: true
+      required:
+        - artifact_id
+        - storage_path
+        - checksum_sha256
+        - publish_status
+      properties:
+        artifact_id:
+          type: string
+        storage_path:
+          type: string
+        checksum_sha256:
+          type: string
+        publish_status:
+          $ref: "#/components/schemas/PublishStatus"
+    RuntimeIndexSummary:
+      type: object
+      required:
+        - index_version
+        - built_at
+        - source_count
+        - topic_count
+        - source_ref_count
+      properties:
+        index_version:
+          type: string
+          nullable: true
+        built_at:
+          type: string
+          nullable: true
+        source_count:
+          type: integer
+        topic_count:
+          type: integer
+        source_ref_count:
+          type: integer
+    RuntimeIndexLatestResponse:
+      type: object
+      required:
+        - object
+        - trace_mode
+        - alias
+        - version
+        - artifact
+        - summary
+        - index
+      properties:
+        object:
+          type: string
+          enum:
+            - runtime_index
+        trace_mode:
+          type: string
+          enum:
+            - content_addressed_version
+            - legacy_alias_only
+        alias:
+          $ref: "#/components/schemas/RuntimeIndexAlias"
+        version:
+          $ref: "#/components/schemas/RuntimeIndexVersion"
+        artifact:
+          $ref: "#/components/schemas/Artifact"
+        summary:
+          $ref: "#/components/schemas/RuntimeIndexSummary"
+        index:
+          type: object
+          additionalProperties: true
+    RuntimeIndexDiffEndpoint:
+      type: object
+      nullable: true
+      properties:
+        artifact_id:
+          type: string
+        checksum_sha256:
+          type: string
+    RuntimeIndexDiffSummary:
+      type: object
+      nullable: true
+      properties:
+        source_count_delta:
+          type: integer
+        topic_count_delta:
+          type: integer
+        source_ref_count_delta:
+          type: integer
+    RuntimeIndexDiffResponse:
+      type: object
+      required:
+        - object
+        - status
+        - selection
+        - from
+        - to
+        - topics
+        - sources
+      properties:
+        object:
+          type: string
+          enum:
+            - runtime_index_diff
+        status:
+          type: string
+          enum:
+            - ok
+            - insufficient_history
+        selection:
+          type: object
+          additionalProperties: true
+        from:
+          $ref: "#/components/schemas/RuntimeIndexDiffEndpoint"
+        to:
+          $ref: "#/components/schemas/RuntimeIndexDiffEndpoint"
+        summary:
+          $ref: "#/components/schemas/RuntimeIndexDiffSummary"
+        topics:
+          type: object
+          required:
+            - added
+            - removed
+            - changed
+          properties:
+            added:
+              type: array
+              items:
+                type: string
+            removed:
+              type: array
+              items:
+                type: string
+            changed:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+        sources:
+          type: object
+          required:
+            - added
+            - removed
+          properties:
+            added:
+              type: array
+              items:
+                type: string
+            removed:
+              type: array
+              items:
+                type: string
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - message
+            - type
+            - code
+            - details
+          properties:
+            message:
+              type: string
+            type:
+              type: string
+            code:
+              type: string
+            details:
+              nullable: true

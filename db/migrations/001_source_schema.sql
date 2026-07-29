@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS knowledge_source_artifacts (
   source_version text,
   storage_path text NOT NULL,
   content_type text NOT NULL DEFAULT 'application/json',
+  publish_status text NOT NULL DEFAULT 'imported',
   record_count integer,
   checksum_sha256 text,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
