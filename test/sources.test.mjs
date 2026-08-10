@@ -120,6 +120,103 @@ test("getLatestRuntimeIndex exposes alias and resolved immutable version metadat
   );
 });
 
+test("getLatestRuntimeIndex selects demo alias when profile=demo", async () => {
+  const runtimeIndex = {
+    index_version: "runtime-index.demo",
+    profile: "demo",
+    sources: [],
+    topics: [],
+    profile_trace: { profile: "demo", source_collection_ids: [], blocked_collection_ids: [], policy_decisions: [] },
+  };
+  const latestRow = {
+    artifact_id: "runtime-index:demo:latest",
+    artifact_type: "runtime_index",
+    source: null,
+    source_version: null,
+    storage_path: "index/profiles/demo/latest.json",
+    content_type: "application/json",
+    record_count: null,
+    checksum_sha256: "demo-checksum",
+    publish_status: "published",
+    metadata: {
+      profile: "demo",
+      points_to_artifact_id: "runtime-index:demo:sha256:demo-checksum",
+    },
+    created_at: "2026-08-10T12:00:01.000Z",
+    updated_at: "2026-08-10T12:00:01.000Z",
+  };
+  const versionRow = {
+    ...latestRow,
+    artifact_id: "runtime-index:demo:sha256:demo-checksum",
+    metadata: { profile: "demo", alias_artifact_id: "runtime-index:demo:latest" },
+  };
+  const queries = [];
+  const sources = createSources({
+    withClient: async (callback) =>
+      callback({
+        query: async (_sql, params = []) => {
+          queries.push(params[0]);
+          return { rows: [params[0] === "runtime-index:demo:latest" ? latestRow : versionRow] };
+        },
+      }),
+    readArtifactJson: async () => runtimeIndex,
+  });
+
+  const result = await sources.getLatestRuntimeIndex({ profile: "demo" });
+
+  assert.equal(result.profile, "demo");
+  assert.equal(result.alias.artifact_id, "runtime-index:demo:latest");
+  assert.equal(result.profile_trace.profile, "demo");
+  assert.deepEqual(queries, ["runtime-index:demo:latest", "runtime-index:demo:sha256:demo-checksum"]);
+});
+
+test("getLatestRuntimeIndex selects mvp alias when profile=mvp", async () => {
+  const row = {
+    artifact_id: "runtime-index:mvp:latest",
+    artifact_type: "runtime_index",
+    source: null,
+    source_version: null,
+    storage_path: "index/profiles/mvp/latest.json",
+    content_type: "application/json",
+    record_count: null,
+    checksum_sha256: "mvp-checksum",
+    publish_status: "published",
+    metadata: { profile: "mvp" },
+    created_at: "2026-08-10T12:00:01.000Z",
+    updated_at: "2026-08-10T12:00:01.000Z",
+  };
+  const queries = [];
+  const sources = createSources({
+    withClient: async (callback) =>
+      callback({
+        query: async (_sql, params = []) => {
+          queries.push(params[0]);
+          return { rows: [row] };
+        },
+      }),
+    readArtifactJson: async () => ({ profile: "mvp", sources: [], topics: [] }),
+  });
+
+  const result = await sources.getLatestRuntimeIndex({ profile: "mvp" });
+
+  assert.equal(result.profile, "mvp");
+  assert.equal(result.alias.artifact_id, "runtime-index:mvp:latest");
+  assert.deepEqual(queries, ["runtime-index:mvp:latest"]);
+});
+
+test("getLatestRuntimeIndex rejects invalid profile", async () => {
+  const sources = createSources();
+
+  await assert.rejects(
+    () => sources.getLatestRuntimeIndex({ profile: "invalid" }),
+    (error) => {
+      assert.equal(error.status, 400);
+      assert.equal(error.code, "invalid_runtime_profile");
+      return true;
+    },
+  );
+});
+
 test("getLatestRuntimeIndex marks legacy alias-only trace when latest has no version pointer", async () => {
   const runtimeIndex = {
     index_version: "knowledge-index.legacy",
@@ -163,6 +260,82 @@ test("getLatestRuntimeIndex marks legacy alias-only trace when latest has no ver
   });
   assert.equal(result.version, null);
   assert.deepEqual(queries, ["runtime-index:latest"]);
+});
+
+test("getLatestRuntimeIndex filters runtime payload by access effective collections", async () => {
+  const runtimeIndex = {
+    index_version: "runtime-index.demo",
+    profile: "demo",
+    sources: [
+      { collection_id: "k12_kgraph_full", source_ids: ["k12_dataset"] },
+      { collection_id: "marble", source_ids: ["marble"] },
+    ],
+    topics: [
+      {
+        topic_key: "linear_equation",
+        collection_id: "k12_kgraph_full",
+        retrieved_sources: [{ collection_id: "k12_kgraph_full", source: "k12_dataset" }],
+      },
+      {
+        topic_key: "fraction_equivalence",
+        collection_id: "marble",
+        retrieved_sources: [{ collection_id: "marble", source: "marble" }],
+      },
+    ],
+    profile_trace: {
+      profile: "demo",
+      source_collection_ids: ["k12_kgraph_full", "marble"],
+      blocked_collection_ids: [],
+      policy_decisions: [],
+    },
+  };
+  const row = {
+    artifact_id: "runtime-index:demo:latest",
+    artifact_type: "runtime_index",
+    source: null,
+    source_version: null,
+    storage_path: "index/profiles/demo/latest.json",
+    content_type: "application/json",
+    record_count: null,
+    checksum_sha256: "demo-checksum",
+    publish_status: "published",
+    metadata: { profile: "demo" },
+    created_at: "2026-08-10T12:00:01.000Z",
+    updated_at: "2026-08-10T12:00:01.000Z",
+  };
+  const sources = createSources({
+    withClient: async (callback) =>
+      callback({
+        query: async () => ({ rows: [row] }),
+      }),
+    readArtifactJson: async () => runtimeIndex,
+  });
+
+  const result = await sources.getLatestRuntimeIndex({
+    profile: "demo",
+    access: {
+      access_mode: "default_only",
+      effective_collection_ids: ["marble"],
+      blocked_collection_ids: ["k12_kgraph_full"],
+    },
+  });
+
+  assert.deepEqual(
+    result.index.sources.map((source) => source.collection_id),
+    ["marble"],
+  );
+  assert.deepEqual(
+    result.index.topics.map((topic) => topic.topic_key),
+    ["fraction_equivalence"],
+  );
+  assert.deepEqual(result.profile_trace.access.effective_collection_ids, ["marble"]);
+  assert.deepEqual(result.summary, {
+    index_version: "runtime-index.demo",
+    built_at: null,
+    source_count: 1,
+    topic_count: 1,
+    source_ref_count: 1,
+  });
 });
 
 test("getRuntimeIndexDiff compares explicit runtime index artifact ids", async () => {

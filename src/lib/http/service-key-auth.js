@@ -1,15 +1,12 @@
 import crypto from "crypto";
-import { readEnv } from "../config.js";
+
+import { getServiceConfig, readEnv } from "../config.js";
+import { findAccessKeyIdentity as defaultFindAccessKeyIdentity } from "../knowledge-access/key-store.js";
+import { bearerToken } from "./bearer-token.js";
 import { unauthorized } from "./errors.js";
 
 function configuredServiceKey(serviceKey) {
   return serviceKey?.trim?.() ?? "";
-}
-
-function bearerToken(request) {
-  const authorization = request.headers.get("authorization") ?? "";
-  const match = authorization.match(/^Bearer\s+(.+)$/);
-  return match?.[1] ?? "";
 }
 
 function constantTimeEquals(actual, expected) {
@@ -32,4 +29,55 @@ export async function requireServiceKeyAuth(request, { serviceKey = readEnv("KNO
   }
 
   return { enabled: true };
+}
+
+function serviceIdentity() {
+  return {
+    key_id: "service:knowledge_source",
+    key_type: "service",
+    tenant_id: null,
+    user_id: null,
+    scopes: ["knowledge:read", "knowledge:admin"],
+    metadata: {},
+  };
+}
+
+export async function requireKnowledgeSourceAuth(
+  request,
+  {
+    serviceKey = readEnv("KNOWLEDGE_SOURCE_KEY", ""),
+    knowledgeAccessConfig = getServiceConfig().knowledgeAccess,
+    findAccessKeyIdentity = defaultFindAccessKeyIdentity,
+  } = {},
+) {
+  const expected = configuredServiceKey(serviceKey);
+  const actual = bearerToken(request);
+  if (expected && actual && constantTimeEquals(actual, expected)) {
+    return {
+      enabled: true,
+      mode: "service_key",
+      identity: serviceIdentity(),
+    };
+  }
+
+  if (knowledgeAccessConfig?.enableTenant) {
+    const identity = actual ? await findAccessKeyIdentity({ bearerToken: actual }) : null;
+    if (!identity) {
+      throw unauthorized();
+    }
+    return {
+      enabled: true,
+      mode: "tenant_key",
+      identity,
+    };
+  }
+
+  if (!expected) {
+    return {
+      enabled: false,
+      mode: "disabled",
+      identity: null,
+    };
+  }
+  throw unauthorized();
 }

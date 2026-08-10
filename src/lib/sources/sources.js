@@ -1,5 +1,6 @@
 import { withClient as defaultWithClient } from "../db/pool.js";
 import { badRequest, notFound } from "../http/errors.js";
+import { resolveRuntimeProfile } from "../runtime-profile/runtime-profile-policy.js";
 import { readArtifactJson as defaultReadArtifactJson, readArtifactText as defaultReadArtifactText } from "../storage/artifacts.js";
 import { diffRuntimeIndexes } from "./runtime-index-diff.js";
 
@@ -51,6 +52,61 @@ function rowToArtifact(row) {
   };
 }
 
+function artifactCollectionId(artifact = {}) {
+  return artifact.metadata?.collection_id ?? artifact.metadata?.source_collection_id ?? null;
+}
+
+function accessAllowsArtifact(access, artifact = {}) {
+  if (!access) {
+    return true;
+  }
+  const collectionId = artifactCollectionId(artifact);
+  if (!collectionId) {
+    return true;
+  }
+  return new Set(access.effective_collection_ids ?? []).has(collectionId);
+}
+
+function accessFilteredArtifactMetadata(metadata = {}, access = null) {
+  if (!access) {
+    return metadata;
+  }
+  const allowedCollections = new Set(access.effective_collection_ids ?? []);
+  const sourceCollectionIds = Array.isArray(metadata.source_collection_ids)
+    ? metadata.source_collection_ids.filter((collectionId) => allowedCollections.has(collectionId))
+    : metadata.source_collection_ids;
+  const blockedCollectionIds = [
+    ...new Set([...(metadata.blocked_collection_ids ?? []), ...(access.blocked_collection_ids ?? [])]),
+  ].sort();
+  return {
+    ...metadata,
+    source_collection_ids: sourceCollectionIds,
+    blocked_collection_ids: blockedCollectionIds,
+    profile_trace: metadata.profile_trace
+      ? {
+          ...metadata.profile_trace,
+          source_collection_ids: Array.isArray(metadata.profile_trace.source_collection_ids)
+            ? metadata.profile_trace.source_collection_ids.filter((collectionId) => allowedCollections.has(collectionId))
+            : metadata.profile_trace.source_collection_ids,
+          blocked_collection_ids: [
+            ...new Set([...(metadata.profile_trace.blocked_collection_ids ?? []), ...(access.blocked_collection_ids ?? [])]),
+          ].sort(),
+          access,
+        }
+      : metadata.profile_trace,
+  };
+}
+
+function artifactForAccess(artifact, access = null) {
+  if (!access || artifact.artifact_type !== "runtime_index") {
+    return artifact;
+  }
+  return {
+    ...artifact,
+    metadata: accessFilteredArtifactMetadata(artifact.metadata, access),
+  };
+}
+
 function summarizeRuntimeIndex(index) {
   const sources = Array.isArray(index.sources) ? index.sources : [];
   const topics = Array.isArray(index.topics) ? index.topics : [];
@@ -63,6 +119,48 @@ function summarizeRuntimeIndex(index) {
       (sum, topic) => sum + (Array.isArray(topic.retrieved_sources) ? topic.retrieved_sources.length : 0),
       0,
     ),
+  };
+}
+
+function runtimeTopicCollectionId(topic = {}) {
+  return topic.collection_id ?? topic.retrieved_sources?.find((source) => source.collection_id)?.collection_id ?? null;
+}
+
+function restrictRuntimeIndexToAccess(index, access = null) {
+  if (!access) {
+    return index;
+  }
+  const allowedCollections = new Set(access.effective_collection_ids ?? []);
+  const sources = (index.sources ?? []).filter((source) => {
+    if (!source.collection_id) {
+      return true;
+    }
+    return allowedCollections.has(source.collection_id);
+  });
+  const topics = (index.topics ?? [])
+    .filter((topic) => {
+      const collectionId = runtimeTopicCollectionId(topic);
+      return !collectionId || allowedCollections.has(collectionId);
+    })
+    .map((topic) => ({
+      ...topic,
+      retrieved_sources: (topic.retrieved_sources ?? []).filter((source) => !source.collection_id || allowedCollections.has(source.collection_id)),
+    }));
+  const sourceCollectionIds = (index.profile_trace?.source_collection_ids ?? []).filter((collectionId) => allowedCollections.has(collectionId));
+  return {
+    ...index,
+    sources,
+    topics,
+    profile_trace: index.profile_trace
+      ? {
+          ...index.profile_trace,
+          source_collection_ids: sourceCollectionIds,
+          blocked_collection_ids: [
+            ...new Set([...(index.profile_trace.blocked_collection_ids ?? []), ...(access.blocked_collection_ids ?? [])]),
+          ].sort(),
+          access,
+        }
+      : { access },
   };
 }
 
@@ -168,14 +266,18 @@ export function createSources({
         `,
         params,
       );
+      const artifacts = result.rows
+        .map(rowToArtifact)
+        .filter((artifact) => accessAllowsArtifact(options.access, artifact))
+        .map((artifact) => artifactForAccess(artifact, options.access));
       return {
         object: "list",
-        data: result.rows.map(rowToArtifact),
+        data: artifacts,
       };
     });
   }
 
-  async function getArtifact(artifactId) {
+  async function getArtifact(artifactId, options = {}) {
     return withClient(async (client) => {
       const result = await client.query(
         `
@@ -189,16 +291,23 @@ export function createSources({
       if (!row) {
         throw notFound("Knowledge source artifact not found.");
       }
-      return rowToArtifact(row);
+      const artifact = rowToArtifact(row);
+      if (!accessAllowsArtifact(options.access, artifact)) {
+        throw notFound("Knowledge source artifact not found.");
+      }
+      return artifactForAccess(artifact, options.access);
     });
   }
 
-  async function getArtifactPayload(artifactId) {
-    const artifact = await getArtifact(artifactId);
+  async function getArtifactPayload(artifactId, options = {}) {
+    const artifact = await getArtifact(artifactId, options);
     const text = await readArtifactText(artifact.storage_path);
     let json = null;
     if (artifact.content_type === "application/json") {
       json = JSON.parse(text);
+      if (artifact.artifact_type === "runtime_index") {
+        json = restrictRuntimeIndexToAccess(json, options.access ?? null);
+      }
     }
     return {
       ...artifact,
@@ -207,18 +316,30 @@ export function createSources({
     };
   }
 
-  async function getLatestRuntimeIndex() {
-    const artifact = await getArtifact("runtime-index:latest");
+  async function getLatestRuntimeIndex(options = {}) {
+    const hasExplicitProfile = Object.hasOwn(options, "profile");
+    const profile = resolveRuntimeProfile(options.profile);
+    const aliasArtifactId = hasExplicitProfile ? `runtime-index:${profile}:latest` : "runtime-index:latest";
+    const artifact = await getArtifact(aliasArtifactId);
     const alias = artifactToAlias(artifact);
     const version = alias.points_to_artifact_id ? artifactToVersion(await getArtifact(alias.points_to_artifact_id)) : null;
-    const index = await readArtifactJson(artifact.storage_path);
+    const index = restrictRuntimeIndexToAccess(await readArtifactJson(artifact.storage_path), options.access ?? null);
     return {
+      profile: index.profile ?? artifact.metadata.profile ?? artifact.metadata.compatibility_profile ?? profile,
       trace_mode: version ? "content_addressed_version" : "legacy_alias_only",
       alias,
       version,
       artifact,
       summary: summarizeRuntimeIndex(index),
+      profile_trace:
+        index.profile_trace ?? {
+          profile: index.profile ?? artifact.metadata.profile ?? artifact.metadata.compatibility_profile ?? profile,
+          source_collection_ids: artifact.metadata.source_collection_ids ?? [],
+          blocked_collection_ids: artifact.metadata.blocked_collection_ids ?? [],
+          policy_decisions: artifact.metadata.profile_trace?.policy_decisions ?? [],
+        },
       index,
+      access_trace: options.access ?? null,
     };
   }
 

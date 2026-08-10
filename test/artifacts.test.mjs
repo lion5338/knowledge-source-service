@@ -65,3 +65,110 @@ test("listArtifacts rejects unsupported publish_status values", async () => {
     },
   );
 });
+
+test("listArtifacts filters artifacts by knowledge access scope", async () => {
+  const { sources } = createQueryRecorder([
+    {
+      artifact_id: "source-artifact:k12",
+      artifact_type: "normalized_documents",
+      source: "k12_dataset",
+      source_version: null,
+      storage_path: "k12.json",
+      content_type: "application/json",
+      publish_status: "published",
+      record_count: 1,
+      checksum_sha256: "k12",
+      metadata: { collection_id: "k12_kgraph_full" },
+      created_at: "2026-08-10T00:00:00.000Z",
+      updated_at: "2026-08-10T00:00:00.000Z",
+    },
+    {
+      artifact_id: "source-artifact:marble",
+      artifact_type: "normalized_documents",
+      source: "marble",
+      source_version: null,
+      storage_path: "marble.json",
+      content_type: "application/json",
+      publish_status: "published",
+      record_count: 1,
+      checksum_sha256: "marble",
+      metadata: { collection_id: "marble" },
+      created_at: "2026-08-10T00:00:00.000Z",
+      updated_at: "2026-08-10T00:00:00.000Z",
+    },
+  ]);
+
+  const result = await sources.listArtifacts({
+    access: { effective_collection_ids: ["marble"] },
+  });
+
+  assert.deepEqual(
+    result.data.map((artifact) => artifact.artifact_id),
+    ["source-artifact:marble"],
+  );
+});
+
+test("getArtifact returns not_found for artifact outside knowledge access scope", async () => {
+  const { sources } = createQueryRecorder([
+    {
+      artifact_id: "source-artifact:k12",
+      artifact_type: "normalized_documents",
+      source: "k12_dataset",
+      source_version: null,
+      storage_path: "k12.json",
+      content_type: "application/json",
+      publish_status: "published",
+      record_count: 1,
+      checksum_sha256: "k12",
+      metadata: { collection_id: "k12_kgraph_full" },
+      created_at: "2026-08-10T00:00:00.000Z",
+      updated_at: "2026-08-10T00:00:00.000Z",
+    },
+  ]);
+
+  await assert.rejects(
+    () => sources.getArtifact("source-artifact:k12", { access: { effective_collection_ids: ["marble"] } }),
+    (error) => {
+      assert.equal(error.status, 404);
+      assert.equal(error.code, "not_found");
+      return true;
+    },
+  );
+});
+
+test("runtime index artifact metadata is filtered by knowledge access scope", async () => {
+  const { sources } = createQueryRecorder([
+    {
+      artifact_id: "runtime-index:demo:latest",
+      artifact_type: "runtime_index",
+      source: null,
+      source_version: null,
+      storage_path: "demo.json",
+      content_type: "application/json",
+      publish_status: "published",
+      record_count: 2,
+      checksum_sha256: "demo",
+      metadata: {
+        source_collection_ids: ["k12_kgraph_full", "marble"],
+        blocked_collection_ids: [],
+        profile_trace: {
+          source_collection_ids: ["k12_kgraph_full", "marble"],
+          blocked_collection_ids: [],
+        },
+      },
+      created_at: "2026-08-10T00:00:00.000Z",
+      updated_at: "2026-08-10T00:00:00.000Z",
+    },
+  ]);
+
+  const artifact = await sources.getArtifact("runtime-index:demo:latest", {
+    access: {
+      effective_collection_ids: ["marble"],
+      blocked_collection_ids: ["k12_kgraph_full"],
+    },
+  });
+
+  assert.deepEqual(artifact.metadata.source_collection_ids, ["marble"]);
+  assert.deepEqual(artifact.metadata.blocked_collection_ids, ["k12_kgraph_full"]);
+  assert.deepEqual(artifact.metadata.profile_trace.source_collection_ids, ["marble"]);
+});

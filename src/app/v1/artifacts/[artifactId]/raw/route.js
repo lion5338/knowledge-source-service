@@ -3,31 +3,36 @@ import {
   artifactResponseHeaders,
   artifactRawCacheKey,
   getRedisResponseCache,
+  knowledgeAccessCacheScope,
   responseCacheTtlSeconds,
   withCachedApiResponse,
 } from "@/lib/http/read-response-cache";
-import { requireServiceKeyAuth } from "@/lib/http/service-key-auth";
-import { readArtifactText } from "@/lib/storage/artifacts";
-import { getArtifact } from "@/lib/sources/sources";
+import { knowledgeAccessHeaders } from "@/lib/http/knowledge-access-headers";
+import { requireKnowledgeSourceAuth } from "@/lib/http/service-key-auth";
+import { resolveRequestKnowledgeAccess } from "@/lib/knowledge-access/request-access-context";
+import { getArtifactPayload } from "@/lib/sources/sources";
 
 export const runtime = "nodejs";
 
 export async function GET(request, { params }) {
   try {
-    await requireServiceKeyAuth(request);
+    const auth = await requireKnowledgeSourceAuth(request);
+    const access = await resolveRequestKnowledgeAccess({ keyIdentity: auth.identity });
+    const accessScope = knowledgeAccessCacheScope({ access });
     const { artifactId } = await params;
     const decodedArtifactId = decodeURIComponent(artifactId);
     return await withCachedApiResponse({
       cache: getRedisResponseCache(),
-      cacheKey: artifactRawCacheKey(decodedArtifactId),
+      cacheKey: artifactRawCacheKey(decodedArtifactId, accessScope),
       ttlSeconds: responseCacheTtlSeconds({ artifactId: decodedArtifactId }),
       request,
       buildResponse: async () => {
-        const artifact = await getArtifact(decodedArtifactId);
-        const text = await readArtifactText(artifact.storage_path);
+        const artifact = await getArtifactPayload(decodedArtifactId, { access });
+        const text = artifact.json ? JSON.stringify(artifact.json, null, 2) : artifact.text;
         return new Response(text, {
           headers: {
             ...artifactResponseHeaders(artifact),
+            ...knowledgeAccessHeaders(access),
             "content-type": `${artifact.content_type}; charset=utf-8`,
           },
         });

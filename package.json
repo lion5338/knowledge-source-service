@@ -15,7 +15,14 @@
     "lint": "eslint",
     "openapi:validate": "node scripts/openapi/validate-openapi.mjs",
     "db:migrate": "node scripts/db/migrate.mjs",
-    "import:ai-workflow-knowledge": "node scripts/import/import-ai-workflow-knowledge.mjs"
+    "import:ai-workflow-knowledge": "node scripts/import/import-ai-workflow-knowledge.mjs",
+    "source-collections:seed": "node --experimental-default-type=module scripts/source-collections/seed-source-collections.mjs",
+    "source-collections:ingest": "node --experimental-default-type=module scripts/source-collections/ingest-source-collection.mjs",
+    "source-artifacts:build": "node --experimental-default-type=module scripts/source-artifacts/build-source-artifact.mjs",
+    "topic-candidates:build": "node --experimental-default-type=module scripts/topic-candidates/build-topic-candidates.mjs",
+    "runtime-index:publish": "node --experimental-default-type=module scripts/runtime-index/publish-runtime-index.mjs",
+    "retrieval-index:build": "node --experimental-default-type=module scripts/retrieval-index/build-retrieval-index.mjs",
+    "source:sole-source:smoke": "node --experimental-default-type=module scripts/readiness/source-sole-source-smoke.mjs"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

@@ -2,13 +2,16 @@ openapi: 3.0.3
 info:
   title: Knowledge Source Service API
   version: 0.1.0
-  description: Demo-facing contract for runtime index and artifact read APIs.
+  description: Access-aware contract for source collections, topic candidates, runtime indexes, retrieval, and artifact read APIs.
 servers:
   - url: http://localhost:3200
     description: Local development server
 tags:
   - name: OpenAPI
   - name: Runtime Index
+  - name: Source Collections
+  - name: Topic Candidates
+  - name: Retrieval
   - name: Artifacts
 paths:
   /openapi.json:
@@ -37,6 +40,13 @@ paths:
       security:
         - bearerAuth: []
       parameters:
+        - name: profile
+          in: query
+          required: false
+          deprecated: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfile"
+          description: Compatibility runtime profile selector. Omit this to let the service derive allowed knowledge from the Bearer key and knowledge access env settings.
         - $ref: "#/components/parameters/IfNoneMatch"
       responses:
         "200":
@@ -50,6 +60,12 @@ paths:
               $ref: "#/components/headers/KnowledgeSourceCache"
             X-Knowledge-Source-Trace-Mode:
               $ref: "#/components/headers/KnowledgeSourceTraceMode"
+            X-Knowledge-Source-Profile:
+              $ref: "#/components/headers/KnowledgeSourceProfile"
+            X-Knowledge-Access-Mode:
+              $ref: "#/components/headers/KnowledgeAccessMode"
+            X-Knowledge-Effective-Collections:
+              $ref: "#/components/headers/KnowledgeEffectiveCollections"
             X-Runtime-Index-Alias-ID:
               $ref: "#/components/headers/RuntimeIndexAliasId"
             X-Runtime-Index-Version-ID:
@@ -108,6 +124,151 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /v1/source-collections:
+    get:
+      tags:
+        - Source Collections
+      summary: List registered source collections with license and profile policy metadata.
+      operationId: listSourceCollections
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Source collection registry list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceCollectionListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/Error"
+  /v1/source-collections/{collectionId}:
+    get:
+      tags:
+        - Source Collections
+      summary: Read one source collection with current snapshot and artifact summaries.
+      operationId: getSourceCollection
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CollectionIdPath"
+      responses:
+        "200":
+          description: Source collection detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceCollectionDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /v1/topic-candidates/export:
+    get:
+      tags:
+        - Topic Candidates
+      summary: Export topic candidates for a collection/profile from a validated candidate artifact.
+      operationId: exportTopicCandidates
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: profile
+          in: query
+          required: false
+          deprecated: true
+          schema:
+            $ref: "#/components/schemas/RuntimeProfile"
+          description: Compatibility runtime profile selector. Omit this to let the service choose a compatible profile for the allowed collection.
+        - name: collection_id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: k12_kgraph_full
+        - name: subject
+          in: query
+          required: false
+          schema:
+            type: string
+          example: mathematics
+        - name: learning_stage
+          in: query
+          required: false
+          schema:
+            type: string
+          example: junior_high
+        - name: node_type
+          in: query
+          required: false
+          schema:
+            type: string
+          example: Concept
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 500
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Opaque pagination cursor returned by a previous export response.
+        - name: download
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Return artifact reference without embedding candidate data.
+      responses:
+        "200":
+          description: Topic candidate export response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopicCandidateExportResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /v1/retrieve:
+    post:
+      tags:
+        - Retrieval
+      summary: Retrieve profile-safe knowledge context from published source artifacts.
+      operationId: retrieveKnowledge
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetrievalRequest"
+      responses:
+        "200":
+          description: Retrieval results with source, license, artifact, and profile trace metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetrievalResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/Error"
   /v1/artifacts:
@@ -184,6 +345,10 @@ paths:
               $ref: "#/components/headers/ArtifactChecksumSha256"
             X-Artifact-Publish-Status:
               $ref: "#/components/headers/ArtifactPublishStatus"
+            X-Knowledge-Access-Mode:
+              $ref: "#/components/headers/KnowledgeAccessMode"
+            X-Knowledge-Effective-Collections:
+              $ref: "#/components/headers/KnowledgeEffectiveCollections"
           content:
             application/json:
               schema:
@@ -223,6 +388,10 @@ paths:
               $ref: "#/components/headers/ArtifactChecksumSha256"
             X-Artifact-Publish-Status:
               $ref: "#/components/headers/ArtifactPublishStatus"
+            X-Knowledge-Access-Mode:
+              $ref: "#/components/headers/KnowledgeAccessMode"
+            X-Knowledge-Effective-Collections:
+              $ref: "#/components/headers/KnowledgeEffectiveCollections"
           content:
             application/json:
               schema:
@@ -250,8 +419,16 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: "Optional local/demo service key. When KNOWLEDGE_SOURCE_KEY is configured, call protected endpoints with Authorization: Bearer <key>."
+      description: "Use Authorization: Bearer <key>. The key may be KNOWLEDGE_SOURCE_KEY service/admin key, or an active tenant/user key when ENABLE_TENANT=true."
   parameters:
+    CollectionIdPath:
+      name: collectionId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Source collection id.
+      example: k12_kgraph_full
     ArtifactIdPath:
       name: artifactId
       in: path
@@ -298,6 +475,23 @@ components:
         enum:
           - content_addressed_version
           - legacy_alias_only
+    KnowledgeSourceProfile:
+      description: Compatibility runtime profile used to resolve the response.
+      schema:
+        $ref: "#/components/schemas/RuntimeProfile"
+    KnowledgeAccessMode:
+      description: Knowledge access mode resolved from the request key and service configuration.
+      schema:
+        type: string
+        enum:
+          - default_only
+          - tenant_fallback_default
+          - tenant_overlay
+    KnowledgeEffectiveCollections:
+      description: Semicolon-separated collection ids included in the resolved access scope.
+      schema:
+        type: string
+      example: marble;learning_commons
     RuntimeIndexAliasId:
       description: Mutable runtime index alias artifact id.
       schema:
@@ -347,6 +541,105 @@ components:
               code: unauthorized
               details: null
   schemas:
+    KnowledgeAccessPolicyDecision:
+      type: object
+      required:
+        - collection_id
+        - allowed
+        - reason_code
+      properties:
+        collection_id:
+          type: string
+        allowed:
+          type: boolean
+        reason_code:
+          type: string
+        license_scope:
+          type: string
+          nullable: true
+        source:
+          type: string
+          nullable: true
+        access_level:
+          type: string
+          nullable: true
+        source_type:
+          type: string
+          nullable: true
+        tenant_id:
+          type: string
+          nullable: true
+        user_id:
+          type: string
+          nullable: true
+    KnowledgeAccessTrace:
+      type: object
+      required:
+        - access_mode
+        - tenant_enabled
+        - tenant_id
+        - user_id
+        - default_collection_ids
+        - tenant_collection_ids
+        - requested_collection_ids
+        - effective_collection_ids
+        - blocked_collection_ids
+        - policy_decisions
+        - trace
+      properties:
+        access_mode:
+          type: string
+          enum:
+            - default_only
+            - tenant_fallback_default
+            - tenant_overlay
+        tenant_enabled:
+          type: boolean
+        tenant_id:
+          type: string
+          nullable: true
+        user_id:
+          type: string
+          nullable: true
+        default_collection_ids:
+          type: array
+          items:
+            type: string
+        tenant_collection_ids:
+          type: array
+          items:
+            type: string
+        requested_collection_ids:
+          type: array
+          items:
+            type: string
+        effective_collection_ids:
+          type: array
+          items:
+            type: string
+        blocked_collection_ids:
+          type: array
+          items:
+            type: string
+        policy_decisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeAccessPolicyDecision"
+        trace:
+          type: object
+          required:
+            - default_knowledge
+            - enable_tenant
+            - enable_k12
+            - fallback_used
+            - identity_status
+          additionalProperties: true
+    RuntimeProfile:
+      type: string
+      enum:
+        - demo
+        - mvp
+        - prod
     PublishStatus:
       type: string
       enum:
@@ -354,6 +647,587 @@ components:
         - published
         - validated
         - deprecated
+    ProfilePolicy:
+      type: object
+      required:
+        - allowed_profiles
+        - blocked_profiles
+      properties:
+        allowed_profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeProfile"
+        blocked_profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeProfile"
+    SourceCollectionTrace:
+      type: object
+      required:
+        - source
+        - raw_path_exposed
+        - profile_policy
+      properties:
+        source:
+          type: string
+          enum:
+            - default_source_collection_manifest
+            - knowledge_source_registry
+            - knowledge_source_tenant_collections
+        raw_path_exposed:
+          type: boolean
+          description: Always false for public metadata responses.
+        profile_policy:
+          $ref: "#/components/schemas/ProfilePolicy"
+        registry_source:
+          type: string
+          nullable: true
+        source_uri_redacted:
+          type: boolean
+          nullable: true
+    SourceCollection:
+      type: object
+      required:
+        - collection_id
+        - collection_type
+        - source_family
+        - display_name
+        - source_ids
+        - license
+        - license_scope
+        - attribution
+        - locale
+        - curriculum_region
+        - official_curriculum_verified
+        - publish_profiles
+        - ingest_status
+        - snapshot_id
+        - created_at
+        - updated_at
+        - trace
+      properties:
+        collection_id:
+          type: string
+          example: k12_kgraph_full
+        collection_type:
+          type: string
+          example: knowledge_graph
+        source_family:
+          type: string
+          example: k12
+        display_name:
+          type: string
+          example: K12-KGraph Full
+        source_ids:
+          type: array
+          items:
+            type: string
+          example:
+            - k12_dataset
+        license:
+          type: string
+          nullable: true
+          example: CC BY-NC-SA 4.0
+        license_scope:
+          type: string
+          nullable: true
+          example: non_commercial_demo_only
+        attribution:
+          type: string
+          nullable: true
+        locale:
+          type: string
+          nullable: true
+          example: zh-CN
+        curriculum_region:
+          type: string
+          nullable: true
+          example: mainland_china
+        official_curriculum_verified:
+          type: boolean
+        publish_profiles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeProfile"
+          example:
+            - demo
+        ingest_status:
+          type: string
+          example: planned
+        snapshot_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        trace:
+          $ref: "#/components/schemas/SourceCollectionTrace"
+    SourceCollectionListResponse:
+      type: object
+      required:
+        - object
+        - data
+      properties:
+        object:
+          type: string
+          enum:
+            - list
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceCollection"
+    SourceCollectionSnapshot:
+      type: object
+      nullable: true
+      required:
+        - snapshot_id
+        - source_version
+        - snapshot_status
+        - checksum_sha256
+        - raw_manifest
+        - total_bytes
+        - imported_at
+        - updated_at
+      properties:
+        snapshot_id:
+          type: string
+          example: source-snapshot:k12_kgraph_full:sha256:c9fc09
+        source_version:
+          type: string
+        snapshot_status:
+          type: string
+          example: available
+        checksum_sha256:
+          type: string
+          nullable: true
+        raw_manifest:
+          type: object
+          nullable: true
+          additionalProperties: true
+        total_bytes:
+          type: integer
+        imported_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    SourceCollectionArtifactSummary:
+      type: object
+      required:
+        - artifact_id
+        - artifact_type
+        - publish_status
+        - checksum_sha256
+        - record_count
+        - created_at
+        - updated_at
+      properties:
+        artifact_id:
+          type: string
+        artifact_type:
+          type: string
+        publish_status:
+          $ref: "#/components/schemas/PublishStatus"
+        checksum_sha256:
+          type: string
+          nullable: true
+        record_count:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    SourceCollectionDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/SourceCollection"
+        - type: object
+          required:
+            - object
+            - source_uri
+            - snapshot
+            - artifacts
+          properties:
+            object:
+              type: string
+              enum:
+                - source_collection
+            source_uri:
+              type: string
+              nullable: true
+              example: datasets/K12-KGraph-HF/K12-KGraph
+            snapshot:
+              $ref: "#/components/schemas/SourceCollectionSnapshot"
+            artifacts:
+              type: array
+              items:
+                $ref: "#/components/schemas/SourceCollectionArtifactSummary"
+    TopicCandidateSourceRef:
+      type: object
+      required:
+        - collection_id
+        - source
+        - topic_id
+      properties:
+        collection_id:
+          type: string
+        source:
+          type: string
+          nullable: true
+        topic_id:
+          type: string
+    TopicCandidate:
+      type: object
+      required:
+        - topic_key
+        - label
+        - aliases
+        - subject
+        - learning_stage
+        - topic_family
+        - source
+        - source_topic_id
+        - source_node_type
+        - parent_topic_key
+        - source_refs
+        - metadata
+      properties:
+        topic_key:
+          type: string
+          example: k12_mathematics_junior_high_math_7a_rjb_cpt41
+        label:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
+        subject:
+          type: string
+          nullable: true
+        learning_stage:
+          type: string
+          nullable: true
+        topic_family:
+          type: string
+        source:
+          type: string
+          nullable: true
+        source_topic_id:
+          type: string
+        source_node_type:
+          type: string
+          nullable: true
+        parent_topic_key:
+          type: string
+          nullable: true
+        source_refs:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopicCandidateSourceRef"
+        metadata:
+          type: object
+          required:
+            - collection_id
+            - source_artifact_id
+            - license_scope
+          additionalProperties: true
+    TopicCandidatePagination:
+      type: object
+      required:
+        - limit
+        - next_cursor
+        - has_more
+      properties:
+        limit:
+          type: integer
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+    TopicCandidateArtifactReference:
+      type: object
+      required:
+        - artifact_id
+        - checksum_sha256
+        - download_url
+      properties:
+        artifact_id:
+          type: string
+        checksum_sha256:
+          type: string
+          nullable: true
+        download_url:
+          type: string
+    TopicCandidateExportTrace:
+      type: object
+      required:
+        - profile
+        - filters
+        - candidate_count
+        - returned_count
+        - raw_path_exposed
+      properties:
+        profile:
+          $ref: "#/components/schemas/RuntimeProfile"
+        profile_source:
+          type: string
+          enum:
+            - request_compatibility
+            - access_resolver_default
+        profile_deprecated:
+          type: boolean
+        filters:
+          type: object
+          additionalProperties: true
+        candidate_count:
+          type: integer
+        returned_count:
+          type: integer
+        raw_path_exposed:
+          type: boolean
+        access:
+          $ref: "#/components/schemas/KnowledgeAccessTrace"
+    TopicCandidateExportResponse:
+      type: object
+      required:
+        - object
+        - profile
+        - collection_id
+        - artifact_id
+        - checksum_sha256
+        - source_artifact_id
+        - license_scope
+        - data
+        - pagination
+        - artifact
+        - trace
+      properties:
+        object:
+          type: string
+          enum:
+            - topic_candidate_export
+        profile:
+          $ref: "#/components/schemas/RuntimeProfile"
+        collection_id:
+          type: string
+        artifact_id:
+          type: string
+        checksum_sha256:
+          type: string
+          nullable: true
+        source_artifact_id:
+          type: string
+          nullable: true
+        license_scope:
+          type: string
+          nullable: true
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopicCandidate"
+        pagination:
+          $ref: "#/components/schemas/TopicCandidatePagination"
+        artifact:
+          $ref: "#/components/schemas/TopicCandidateArtifactReference"
+        trace:
+          $ref: "#/components/schemas/TopicCandidateExportTrace"
+    RetrievalRequest:
+      type: object
+      required:
+        - query
+      properties:
+        profile:
+          $ref: "#/components/schemas/RuntimeProfile"
+          deprecated: true
+          description: Compatibility runtime profile selector. Omit this to use key-derived access scope.
+        query:
+          type: string
+          minLength: 1
+        subject:
+          type: string
+          nullable: true
+        learning_stage:
+          type: string
+          nullable: true
+        tenant_id:
+          type: string
+          nullable: true
+        allowed_source_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 20
+    RetrievalSourceRef:
+      type: object
+      additionalProperties: true
+      required:
+        - collection_id
+        - source
+        - topic_id
+      properties:
+        collection_id:
+          type: string
+        source:
+          type: string
+          nullable: true
+        topic_id:
+          type: string
+    RetrievalResult:
+      type: object
+      required:
+        - result_id
+        - collection_id
+        - source
+        - source_ref
+        - title
+        - text
+        - score
+        - license_scope
+        - artifact_id
+        - checksum_sha256
+      properties:
+        result_id:
+          type: string
+        collection_id:
+          type: string
+        source:
+          type: string
+          nullable: true
+        source_ref:
+          $ref: "#/components/schemas/RetrievalSourceRef"
+        title:
+          type: string
+        text:
+          type: string
+        score:
+          type: number
+        license_scope:
+          type: string
+          nullable: true
+        artifact_id:
+          type: string
+        checksum_sha256:
+          type: string
+          nullable: true
+    RetrievalTraceTenant:
+      type: object
+      required:
+        - tenant_id
+        - policy_status
+        - allowed_collection_ids
+        - blocked_collection_ids
+      properties:
+        tenant_id:
+          type: string
+          nullable: true
+        policy_status:
+          type: string
+        allowed_collection_ids:
+          type: array
+          items:
+            type: string
+        blocked_collection_ids:
+          type: array
+          items:
+            type: string
+    RetrievalTrace:
+      type: object
+      required:
+        - status
+        - profile
+        - filters
+        - limit
+        - source_collections
+        - blocked_collections
+        - policy_decisions
+        - retrieval_mode
+        - retrieval_index_artifact_id
+        - retrieval_index_checksum_sha256
+        - artifact_ids
+        - tenant
+        - access
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+        profile:
+          $ref: "#/components/schemas/RuntimeProfile"
+        filters:
+          type: object
+          additionalProperties: true
+        limit:
+          type: integer
+        source_collections:
+          type: array
+          items:
+            type: string
+        blocked_collections:
+          type: array
+          items:
+            type: string
+        policy_decisions:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        retrieval_mode:
+          type: string
+          enum:
+            - retrieval_index
+            - normalized_scan
+        retrieval_index_artifact_id:
+          type: string
+          nullable: true
+        retrieval_index_checksum_sha256:
+          type: string
+          nullable: true
+        artifact_ids:
+          type: array
+          items:
+            type: string
+        tenant:
+          $ref: "#/components/schemas/RetrievalTraceTenant"
+        access:
+          $ref: "#/components/schemas/KnowledgeAccessTrace"
+    RetrievalResponse:
+      type: object
+      required:
+        - object
+        - profile
+        - results
+        - trace
+      properties:
+        object:
+          type: string
+          enum:
+            - retrieval_result
+        profile:
+          $ref: "#/components/schemas/RuntimeProfile"
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/RetrievalResult"
+        trace:
+          $ref: "#/components/schemas/RetrievalTrace"
     Artifact:
       type: object
       required:
@@ -484,17 +1358,22 @@ components:
       type: object
       required:
         - object
+        - profile
         - trace_mode
         - alias
         - version
         - artifact
         - summary
+        - profile_trace
         - index
+        - access_trace
       properties:
         object:
           type: string
           enum:
             - runtime_index
+        profile:
+          $ref: "#/components/schemas/RuntimeProfile"
         trace_mode:
           type: string
           enum:
@@ -508,6 +1387,34 @@ components:
           $ref: "#/components/schemas/Artifact"
         summary:
           $ref: "#/components/schemas/RuntimeIndexSummary"
+        profile_trace:
+          type: object
+          required:
+            - profile
+            - source_collection_ids
+            - blocked_collection_ids
+            - policy_decisions
+          properties:
+            profile:
+              $ref: "#/components/schemas/RuntimeProfile"
+            source_collection_ids:
+              type: array
+              items:
+                type: string
+            blocked_collection_ids:
+              type: array
+              items:
+                type: string
+            policy_decisions:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+            access:
+              $ref: "#/components/schemas/KnowledgeAccessTrace"
+        access_trace:
+          nullable: true
+          $ref: "#/components/schemas/KnowledgeAccessTrace"
         index:
           type: object
           additionalProperties: true

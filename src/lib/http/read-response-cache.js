@@ -2,6 +2,7 @@ import { readEnv } from "../config.js";
 import {
   artifactDetailCacheKey,
   artifactRawCacheKey,
+  knowledgeAccessCacheScope,
   immutableResponseCacheTtlSeconds,
   isImmutableArtifactId,
   mutableReadCacheKeysForArtifacts,
@@ -120,6 +121,7 @@ export function latestRuntimeIndexResponseHeaders(runtimeIndex) {
   const headers = {
     "Cache-Control": mutableCacheControl,
     "X-Knowledge-Source-Trace-Mode": runtimeIndex.trace_mode,
+    "X-Knowledge-Source-Profile": runtimeIndex.profile ?? "demo",
     "X-Runtime-Index-Alias-ID": runtimeIndex.alias.artifact_id,
     "X-Artifact-ID": resolvedArtifact.artifact_id,
     "X-Artifact-Publish-Status": resolvedArtifact.publish_status,
@@ -215,6 +217,7 @@ export function getRedisResponseCache() {
 export {
   artifactDetailCacheKey,
   artifactRawCacheKey,
+  knowledgeAccessCacheScope,
   mutableReadCacheKeysForArtifacts,
   responseCacheTtlSeconds,
   runtimeIndexLatestCacheKey,

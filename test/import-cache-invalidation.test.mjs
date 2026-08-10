@@ -15,6 +15,9 @@ test("import cache invalidation uses the same knowledge-source v1 mutable read k
     ]),
     [
       "knowledge-source:v1:runtime-index:latest",
+      "knowledge-source:v1:runtime-index:latest:demo",
+      "knowledge-source:v1:runtime-index:latest:mvp",
+      "knowledge-source:v1:runtime-index:latest:prod",
       "knowledge-source:v1:artifacts:runtime-index%3Alatest:detail",
       "knowledge-source:v1:artifacts:runtime-index%3Alatest:raw",
       "knowledge-source:v1:artifacts:import-summary%3Alatest:detail",
@@ -44,6 +47,9 @@ test("import cache invalidation deletes Redis keys when REDIS_URL is configured"
   assert.equal(result.status, "ok");
   assert.deepEqual(result.keys, [
     "knowledge-source:v1:runtime-index:latest",
+    "knowledge-source:v1:runtime-index:latest:demo",
+    "knowledge-source:v1:runtime-index:latest:mvp",
+    "knowledge-source:v1:runtime-index:latest:prod",
     "knowledge-source:v1:artifacts:runtime-index%3Alatest:detail",
     "knowledge-source:v1:artifacts:runtime-index%3Alatest:raw",
   ]);
