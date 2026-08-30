@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { getServiceConfig } from "../config.js";
 import { notFound } from "../http/errors.js";
+import { checkWritableDirectoryReady } from "./storage-readiness.mjs";
 
 function projectRoot() {
   return process.cwd();
@@ -29,12 +30,9 @@ export async function readArtifactJson(storagePath) {
 }
 
 export async function checkStorage() {
-  try {
-    const root = storageRoot();
-    await fs.mkdir(root, { recursive: true });
-    await fs.access(root);
-    return { status: "ok", root: getServiceConfig().storageRoot };
-  } catch (error) {
-    return { status: "error", message: error.message, root: getServiceConfig().storageRoot };
-  }
+  const result = await checkWritableDirectoryReady(storageRoot());
+  return {
+    ...result,
+    root: getServiceConfig().storageRoot,
+  };
 }
