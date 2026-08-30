@@ -287,7 +287,6 @@ RUN node --version \
     && test "$(node --version)" = "v24.18.1" \
     && test "$(npm --version)" = "11.16.0"
 RUN npm run lint
-RUN npm test
 RUN npm run openapi:validate
 RUN npm run build
 
@@ -356,7 +355,7 @@ docker run --rm --entrypoint sh knowledge-source-service:node24-verification -c 
 docker image inspect knowledge-source-service:node24-verification --format 'user={{.Config.User}} ports={{json .Config.ExposedPorts}} health={{json .Config.Healthcheck}}'
 ```
 
-Expected: build-stage lint, 203 tests, OpenAPI, and Next build pass; UID `1000`; Node/npm versions match; filesystem checks exit 0; image metadata says `user=node`, port `3200/tcp`, and a healthcheck exists.
+Expected: build-stage lint, OpenAPI, and Next build pass; UID `1000`; Node/npm versions match; filesystem checks exit 0; image metadata says `user=node`, port `3200/tcp`, and a healthcheck exists. The database-backed 203-test suite runs against the healthy Compose PostgreSQL service in Task 4 rather than inside the network-isolated image builder.
 
 - [ ] **Step 5: Commit the image**
 

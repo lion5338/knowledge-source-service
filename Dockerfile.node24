@@ -1,0 +1,50 @@
+ARG NODE_IMAGE=node:24.18.1-bookworm-slim@sha256:235600a8101ab264e117b1768e925532262668dc9b581ef1dd7d96ced463b8e7
+FROM ${NODE_IMAGE} AS base
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+
+FROM base AS deps
+COPY package.json package-lock.json ./
+RUN npm ci
+
+FROM deps AS builder
+COPY . .
+RUN node --version \
+    && npm --version \
+    && test "$(node --version)" = "v24.18.1" \
+    && test "$(npm --version)" = "11.16.0"
+RUN npm run lint
+RUN npm run openapi:validate
+RUN npm run build
+
+FROM base AS runtime-deps
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev \
+    && npm cache clean --force
+
+FROM base AS runner
+ENV NODE_ENV=production \
+    HOSTNAME=0.0.0.0 \
+    PORT=3200 \
+    KNOWLEDGE_SOURCE_STORAGE_ROOT=/app/storage/knowledge
+
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=runtime-deps --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/openapi ./openapi
+COPY --from=builder --chown=node:node /app/db ./db
+COPY --from=builder --chown=node:node /app/scripts/db ./scripts/db
+COPY --from=builder --chown=node:node /app/scripts/lib ./scripts/lib
+COPY --from=builder --chown=node:node /app/scripts/source-collections ./scripts/source-collections
+COPY --from=builder --chown=node:node /app/src/lib ./src/lib
+COPY --from=builder --chown=node:node /app/package.json ./package.json
+
+RUN mkdir -p /app/storage/knowledge \
+    && chown -R node:node /app/storage
+
+USER node
+EXPOSE 3200
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=5 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:3200/healthz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"]
+CMD ["node", "server.js"]
