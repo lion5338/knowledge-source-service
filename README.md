@@ -4,7 +4,7 @@ Knowledge source API running on Node.js 24 with PostgreSQL-backed metadata and f
 
 ## Node 24 host workflow
 
-PostgreSQL must be available for the database-backed test cases.
+Some existing tests retain the production `withClient` wrapper even when query helpers are mocked, so `npm test` requires a reachable PostgreSQL instance. Use the Compose `source-test` command below when PostgreSQL is not installed on the host.
 
 ```powershell
 nvm use 24.18.1
@@ -34,8 +34,15 @@ The API listens only on `127.0.0.1:3200` by default. The normal stack bypasses r
 ```powershell
 $env:SOURCE_REDIS_URL='redis://source-redis:6379'
 docker compose -f docker-compose.node24.yml --profile cache up -d --build --wait
+$uri='http://127.0.0.1:3200/v1/artifacts/source-collections%3Asummary%3Alatest'
+curl.exe -sS -D - -o NUL $uri
+curl.exe -sS -D - -o NUL $uri
 ```
 
+The first response should contain `x-knowledge-source-cache: miss`; the second should contain `x-knowledge-source-cache: hit`.
+
 `docker compose down` preserves the named PostgreSQL and artifact volumes. `docker compose down -v` permanently deletes both sets of local data.
+
+Keep `SOURCE_PGPASSWORD` consistent while reusing an existing PostgreSQL volume. Changing it in Compose does not change the password already stored inside that database; migrate the database credential explicitly or recreate the local volume.
 
 This Compose stack is a reproducible local runtime and verification target. It is not, by itself, evidence of production readiness.

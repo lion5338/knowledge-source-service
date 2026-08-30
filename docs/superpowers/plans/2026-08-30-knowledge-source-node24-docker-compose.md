@@ -120,7 +120,7 @@ Test-Path .next-build\standalone\server.js
 Test-Path .next-build\standalone\openapi\knowledge-source-service.openapi.yaml
 ```
 
-Expected: clean install and dependency tree exit 0; lint, OpenAPI, and build exit 0; both artifact checks print `True`; no multiple-lockfile tracing warning appears. The 201-test suite requires the project PostgreSQL prerequisite: without it, database-backed cases fail with `ECONNREFUSED`, so the complete suite is rerun after the Compose database is healthy.
+Expected: clean install and dependency tree exit 0; lint, OpenAPI, and build exit 0; both artifact checks print `True`; no multiple-lockfile tracing warning appears. Some existing tests retain the production `withClient` wrapper, so without PostgreSQL those connection-dependent cases fail with `ECONNREFUSED`; the complete suite is rerun after the Compose database is healthy.
 
 - [ ] **Step 5: Commit the host baseline**
 
@@ -234,7 +234,7 @@ node --test test/storage-readiness.test.mjs
 npm run lint
 ```
 
-Expected: 2 focused tests pass and lint exits 0. The database-backed full suite runs as `source-test` after Compose PostgreSQL is healthy.
+Expected: 2 focused tests pass and lint exits 0. The full suite, including connection-dependent cases, runs as `source-test` after Compose PostgreSQL is healthy.
 
 - [ ] **Step 5: Commit writable readiness**
 
@@ -354,7 +354,7 @@ docker run --rm --entrypoint sh knowledge-source-service:node24-verification -c 
 docker image inspect knowledge-source-service:node24-verification --format 'user={{.Config.User}} ports={{json .Config.ExposedPorts}} health={{json .Config.Healthcheck}}'
 ```
 
-Expected: build-stage lint, OpenAPI, and Next build pass; UID `1000`; Node/npm versions match; filesystem checks exit 0; image metadata says `user=node`, port `3200/tcp`, and a healthcheck exists. The database-backed 203-test suite runs against the healthy Compose PostgreSQL service in Task 4 rather than inside the network-isolated image builder.
+Expected: build-stage lint, OpenAPI, and Next build pass; UID `1000`; Node/npm versions match; filesystem checks exit 0; image metadata says `user=node`, port `3200/tcp`, and a healthcheck exists. The 203-test suite runs with healthy Compose PostgreSQL available in Task 4 rather than inside the network-isolated image builder.
 
 - [ ] **Step 5: Commit the image**
 
@@ -702,7 +702,7 @@ npm run openapi:validate
 npm run build:isolated
 ```
 
-Expected: Node/npm exact versions and all host commands exit 0. The database-backed full suite runs in the fresh Compose gate below.
+Expected: Node/npm exact versions and all host commands exit 0. The full suite, including connection-dependent cases, runs in the fresh Compose gate below.
 
 - [ ] **Step 2: Run fresh image gates**
 

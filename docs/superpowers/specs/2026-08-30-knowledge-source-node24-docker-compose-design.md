@@ -1,7 +1,7 @@
 # Knowledge Source Node 24 and Docker Compose Design
 
-**Date:** 2026-08-30  
-**Status:** Approved in chat  
+**Date:** 2026-08-30
+**Status:** Approved in chat
 **Scope:** `knowledge-source-service` host runtime, production image, and local Compose stack
 
 ## Goal
@@ -68,7 +68,7 @@ The build uses:
 Stages:
 
 - `deps`: clean development dependency install.
-- `builder`: exact Node/npm assertions followed by lint, OpenAPI validation, and Next.js production build. Database-backed tests run from this stage through the Compose `source-test` tool after PostgreSQL is healthy.
+- `builder`: exact Node/npm assertions followed by lint, OpenAPI validation, and Next.js production build. The full suite runs from this stage through the Compose `source-test` tool with PostgreSQL available.
 - `runtime-deps`: production-only dependency install.
 - `runner`: standalone server, static assets, OpenAPI, migrations, scripts needed by migration/seed jobs, source modules needed by the seed job, and production dependencies.
 
@@ -128,7 +128,7 @@ Host gates:
 - OpenAPI validation;
 - isolated standalone build and required artifact checks.
 
-Compose gates include the full 201-test baseline plus the two readiness tests through `source-test`, for 203 total tests against the private PostgreSQL service.
+Compose gates include the full 201-test baseline plus the two readiness tests through `source-test`, for 203 total tests with the private PostgreSQL service available. The subset retaining the production `withClient` wrapper opens a live database connection even though its query helpers are mocked. Separate migration, seed, readiness, and API smoke gates exercise the real schema and seeded data path.
 
 Image gates:
 
