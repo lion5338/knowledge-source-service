@@ -23,7 +23,7 @@ Set a local-only database password; do not commit it. You can also copy `.env.co
 $env:SOURCE_PGPASSWORD='choose-a-local-password'
 docker compose -f docker-compose.node24.yml config --quiet
 docker compose -f docker-compose.node24.yml up -d --build --wait
-docker compose -f docker-compose.node24.yml --profile tools run --rm source-test
+docker compose -f docker-compose.node24.yml --profile tools run --rm --no-deps source-test
 docker compose -f docker-compose.node24.yml --profile tools run --rm --no-deps source-readiness
 docker compose -f docker-compose.node24.yml logs source-migrate source-seed
 docker compose -f docker-compose.node24.yml down --remove-orphans

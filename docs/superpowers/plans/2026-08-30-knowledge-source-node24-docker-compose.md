@@ -582,7 +582,7 @@ npm run build:isolated
 $env:SOURCE_PGPASSWORD='choose-a-local-password'
 docker compose -f docker-compose.node24.yml config --quiet
 docker compose -f docker-compose.node24.yml up -d --build --wait
-docker compose -f docker-compose.node24.yml --profile tools run --rm source-test
+docker compose -f docker-compose.node24.yml --profile tools run --rm --no-deps source-test
 docker compose -f docker-compose.node24.yml --profile tools run --rm --no-deps source-readiness
 docker compose -f docker-compose.node24.yml logs source-migrate source-seed
 docker compose -f docker-compose.node24.yml down --remove-orphans
@@ -727,7 +727,7 @@ if ($before.Count -ne 0) { throw 'Final verification requires empty project volu
 docker compose -f docker-compose.node24.yml config --quiet
 docker compose -f docker-compose.node24.yml up -d --build --wait
 docker compose -f docker-compose.node24.yml logs --no-color source-migrate source-seed
-docker compose -f docker-compose.node24.yml --profile tools run --rm source-test
+docker compose -f docker-compose.node24.yml --profile tools run --rm --no-deps source-test
 Invoke-RestMethod http://127.0.0.1:3200/healthz
 Invoke-RestMethod http://127.0.0.1:3200/readyz
 Invoke-RestMethod http://127.0.0.1:3200/openapi.json
