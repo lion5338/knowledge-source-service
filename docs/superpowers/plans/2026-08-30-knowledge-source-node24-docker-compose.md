@@ -120,7 +120,7 @@ Test-Path .next-build\standalone\server.js
 Test-Path .next-build\standalone\openapi\knowledge-source-service.openapi.yaml
 ```
 
-Expected: clean install and dependency tree exit 0; 201 tests pass; lint, OpenAPI, and build exit 0; both artifact checks print `True`; no multiple-lockfile tracing warning appears.
+Expected: clean install and dependency tree exit 0; lint, OpenAPI, and build exit 0; both artifact checks print `True`; no multiple-lockfile tracing warning appears. The 201-test suite requires the project PostgreSQL prerequisite: without it, database-backed cases fail with `ECONNREFUSED`, so the complete suite is rerun after the Compose database is healthy.
 
 - [ ] **Step 5: Commit the host baseline**
 
