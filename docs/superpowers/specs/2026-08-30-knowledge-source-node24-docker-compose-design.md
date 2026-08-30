@@ -68,7 +68,7 @@ The build uses:
 Stages:
 
 - `deps`: clean development dependency install.
-- `builder`: exact Node/npm assertions followed by lint, all tests, OpenAPI validation, and Next.js production build.
+- `builder`: exact Node/npm assertions followed by lint, OpenAPI validation, and Next.js production build. Database-backed tests run from this stage through the Compose `source-test` tool after PostgreSQL is healthy.
 - `runtime-deps`: production-only dependency install.
 - `runner`: standalone server, static assets, OpenAPI, migrations, scripts needed by migration/seed jobs, source modules needed by the seed job, and production dependencies.
 
@@ -123,10 +123,12 @@ Host gates:
 - exact Node and npm versions;
 - `npm ci`;
 - `npm ls --all`;
-- full test suite with 201 expected tests plus new readiness tests;
+- the focused readiness unit test without external services;
 - ESLint;
 - OpenAPI validation;
 - isolated standalone build and required artifact checks.
+
+Compose gates include the full 201-test baseline plus the two readiness tests through `source-test`, for 203 total tests against the private PostgreSQL service.
 
 Image gates:
 

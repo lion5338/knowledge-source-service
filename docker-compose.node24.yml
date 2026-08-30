@@ -1,0 +1,150 @@
+name: knowledge-source-node24
+
+x-source-environment: &source-environment
+  PGHOST: source-db
+  PGPORT: 5432
+  PGDATABASE: ${SOURCE_PGDATABASE:-knowledge_source}
+  PGUSER: ${SOURCE_PGUSER:-knowledge_source_user}
+  PGPASSWORD: ${SOURCE_PGPASSWORD:?Set SOURCE_PGPASSWORD or use --env-file .env.compose}
+  KNOWLEDGE_SOURCE_STORAGE_ROOT: /app/storage/knowledge
+  ENABLE_TENANT: ${ENABLE_TENANT:-false}
+  ENABLE_K12: ${ENABLE_K12:-false}
+  DEFAULT_KNOWLEDGE: ${DEFAULT_KNOWLEDGE:-marble;learning_commons}
+  REDIS_URL: ${SOURCE_REDIS_URL:-}
+
+x-app-image: &app-image
+  image: question-generation/knowledge-source-service:node24
+
+services:
+  source-db:
+    image: postgres:17.6-bookworm@sha256:f3bd19c606e442c3d7bdfa8002e03fe260a1023351e0ea4598032022b68dd6e3
+    environment:
+      POSTGRES_DB: ${SOURCE_PGDATABASE:-knowledge_source}
+      POSTGRES_USER: ${SOURCE_PGUSER:-knowledge_source_user}
+      POSTGRES_PASSWORD: ${SOURCE_PGPASSWORD:?Set SOURCE_PGPASSWORD or use --env-file .env.compose}
+    volumes:
+      - source-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    stop_grace_period: 30s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  source-redis:
+    image: redis:8.2.1-bookworm@sha256:5fa2edb1e408fa8235e6db8fab01d1afaaae96c9403ba67b70feceb8661e8621
+    profiles: [cache]
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    stop_grace_period: 10s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  source-migrate:
+    <<: *app-image
+    pull_policy: never
+    environment: *source-environment
+    command: ["node", "scripts/db/migrate.mjs"]
+    depends_on:
+      source-db:
+        condition: service_healthy
+    init: true
+    restart: "no"
+
+  source-seed:
+    <<: *app-image
+    pull_policy: never
+    environment: *source-environment
+    command: ["node", "scripts/source-collections/seed-source-collections.mjs"]
+    depends_on:
+      source-migrate:
+        condition: service_completed_successfully
+    volumes:
+      - source-artifact-data:/app/storage/knowledge
+    init: true
+    restart: "no"
+
+  knowledge-source-service:
+    <<: *app-image
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile.node24
+    environment: *source-environment
+    depends_on:
+      source-db:
+        condition: service_healthy
+      source-seed:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${SOURCE_PORT:-3200}:3200"
+    volumes:
+      - source-artifact-data:/app/storage/knowledge
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3200/readyz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"]
+      interval: 5s
+      timeout: 5s
+      start_period: 10s
+      retries: 20
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  source-test:
+    image: question-generation/knowledge-source-service:node24-test
+    profiles: [tools]
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile.node24
+      target: builder
+    environment: *source-environment
+    command: ["npm", "test"]
+    depends_on:
+      source-migrate:
+        condition: service_completed_successfully
+    init: true
+    restart: "no"
+
+  source-readiness:
+    <<: *app-image
+    pull_policy: never
+    profiles: [tools]
+    depends_on:
+      knowledge-source-service:
+        condition: service_healthy
+    command:
+      - node
+      - -e
+      - |
+        const base = 'http://knowledge-source-service:3200';
+        Promise.all(['/healthz', '/readyz', '/openapi.json', '/v1/source-collections'].map(async (path) => {
+          const response = await fetch(base + path);
+          if (!response.ok) throw new Error(path + ' returned ' + response.status);
+          return [path, response.status];
+        })).then((checks) => console.log(JSON.stringify(Object.fromEntries(checks)))).catch((error) => {
+          console.error(error.message);
+          process.exit(1);
+        });
+    init: true
+    restart: "no"
+
+volumes:
+  source-db-data:
+  source-artifact-data:

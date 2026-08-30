@@ -231,11 +231,10 @@ Run:
 
 ```powershell
 node --test test/storage-readiness.test.mjs
-npm test
 npm run lint
 ```
 
-Expected: 2 focused tests pass; full suite reports 203 tests, 0 failures; lint exits 0.
+Expected: 2 focused tests pass and lint exits 0. The database-backed full suite runs as `source-test` after Compose PostgreSQL is healthy.
 
 - [ ] **Step 5: Commit writable readiness**
 
@@ -376,7 +375,7 @@ git commit -m "build: add Node 24 standalone source image"
 
 **Interfaces:**
 - Consumes: the Task 3 image, `node scripts/db/migrate.mjs`, `node scripts/source-collections/seed-source-collections.mjs`, `/healthz`, `/readyz`, and `/openapi.json`.
-- Produces: Compose services `source-db`, `source-migrate`, `source-seed`, `knowledge-source-service`, `source-readiness`, and optional `source-redis`.
+- Produces: Compose services `source-db`, `source-migrate`, `source-seed`, `knowledge-source-service`, `source-test`, `source-readiness`, and optional `source-redis`.
 
 - [ ] **Step 1: Verify Compose configuration is absent**
 
@@ -524,6 +523,22 @@ services:
         max-size: 10m
         max-file: "3"
 
+  source-test:
+    image: question-generation/knowledge-source-service:node24-test
+    profiles: [tools]
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile.node24
+      target: builder
+    environment: *source-environment
+    command: ["npm", "test"]
+    depends_on:
+      source-migrate:
+        condition: service_completed_successfully
+    init: true
+    restart: "no"
+
   source-readiness:
     <<: *app-image
     pull_policy: never
@@ -567,6 +582,7 @@ npm run build:isolated
 $env:SOURCE_PGPASSWORD='choose-a-local-password'
 docker compose -f docker-compose.node24.yml config --quiet
 docker compose -f docker-compose.node24.yml up -d --build --wait
+docker compose -f docker-compose.node24.yml --profile tools run --rm source-test
 docker compose -f docker-compose.node24.yml --profile tools run --rm --no-deps source-readiness
 docker compose -f docker-compose.node24.yml logs source-migrate source-seed
 docker compose -f docker-compose.node24.yml down --remove-orphans
@@ -599,7 +615,7 @@ Invoke-RestMethod http://127.0.0.1:3200/v1/source-collections
 docker compose -f docker-compose.node24.yml --profile tools run --rm --no-deps source-readiness
 ```
 
-Expected: three migrations are logged, seed reports three configured collections, API and dependency checks return `ok`, OpenAPI is returned, source collections are non-empty, and the tool exits 0 without recreating the API container.
+Expected: three migrations are logged, seed reports three configured collections, the full suite reports 203 tests and 0 failures, API and dependency checks return `ok`, OpenAPI is returned, source collections are non-empty, and the readiness tool exits 0 without recreating the API container.
 
 - [ ] **Step 6: Verify cache bypass, cache profile, and persistence**
 
@@ -682,12 +698,11 @@ npm --version
 npm ci
 npm ls --all
 npm run lint
-npm test
 npm run openapi:validate
 npm run build:isolated
 ```
 
-Expected: Node/npm exact versions; all commands exit 0; full suite reports 203 tests and 0 failures.
+Expected: Node/npm exact versions and all host commands exit 0. The database-backed full suite runs in the fresh Compose gate below.
 
 - [ ] **Step 2: Run fresh image gates**
 
@@ -712,18 +727,22 @@ if ($before.Count -ne 0) { throw 'Final verification requires empty project volu
 docker compose -f docker-compose.node24.yml config --quiet
 docker compose -f docker-compose.node24.yml up -d --build --wait
 docker compose -f docker-compose.node24.yml logs --no-color source-migrate source-seed
+docker compose -f docker-compose.node24.yml --profile tools run --rm source-test
 Invoke-RestMethod http://127.0.0.1:3200/healthz
 Invoke-RestMethod http://127.0.0.1:3200/readyz
 Invoke-RestMethod http://127.0.0.1:3200/openapi.json
 Invoke-RestMethod http://127.0.0.1:3200/v1/source-collections
 docker compose -f docker-compose.node24.yml --profile tools run --rm --no-deps source-readiness
 $uri='http://127.0.0.1:3200/v1/artifacts/source-collections%3Asummary%3Alatest'
-if ((Invoke-WebRequest $uri).Headers['X-Knowledge-Source-Cache'] -ne 'bypass') { throw 'Expected cache bypass.' }
+$headers=curl.exe -sS -D - -o NUL $uri
+if (($headers -join "`n") -notmatch '(?im)^x-knowledge-source-cache:\s*bypass\s*$') { throw 'Expected cache bypass.' }
 docker compose -f docker-compose.node24.yml down --remove-orphans
 $env:SOURCE_REDIS_URL='redis://source-redis:6379'
 docker compose -f docker-compose.node24.yml --profile cache up -d --build --wait
-if ((Invoke-WebRequest $uri).Headers['X-Knowledge-Source-Cache'] -ne 'miss') { throw 'Expected first Redis request to miss.' }
-if ((Invoke-WebRequest $uri).Headers['X-Knowledge-Source-Cache'] -ne 'hit') { throw 'Expected second Redis request to hit.' }
+$headers=curl.exe -sS -D - -o NUL $uri
+if (($headers -join "`n") -notmatch '(?im)^x-knowledge-source-cache:\s*miss\s*$') { throw 'Expected first Redis request to miss.' }
+$headers=curl.exe -sS -D - -o NUL $uri
+if (($headers -join "`n") -notmatch '(?im)^x-knowledge-source-cache:\s*hit\s*$') { throw 'Expected second Redis request to hit.' }
 docker compose -f docker-compose.node24.yml restart knowledge-source-service
 $ready=$false
 for ($attempt=1; $attempt -le 30; $attempt++) {
@@ -744,7 +763,7 @@ if ((Compare-Object $volumes $expected).Count -ne 0) { throw 'Unexpected project
 docker volume rm knowledge-source-node24_source-artifact-data knowledge-source-node24_source-db-data
 ```
 
-Expected: migrations, seed, default readiness, cache bypass, Redis miss/hit, and post-restart artifact persistence all pass; only the two verified smoke-test volumes are removed.
+Expected: migrations, seed, 203 tests, default readiness, cache bypass, Redis miss/hit, and post-restart artifact persistence all pass; only the two verified smoke-test volumes are removed.
 
 - [ ] **Step 4: Request independent code review**
 
