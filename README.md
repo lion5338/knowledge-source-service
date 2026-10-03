@@ -17,16 +17,16 @@ npm run build:isolated
 
 ## Docker Compose workflow
 
-Set a local-only database password; do not commit it. You can also copy `.env.compose.example` to the ignored `.env.compose` and add `--env-file .env.compose` to each Compose command.
+Keep a local database password in this project's private `.env.local` using `PGPASSWORD`. Compose loads that file automatically at startup. Optional `PGUSER` and `PGDATABASE` default to `knowledge_source_user` and `knowledge_source`; existing `SOURCE_*` aliases and explicit shell overrides remain supported. No env file renaming or `--env-file` flag is needed. Before the first startup, run the separate build command below to prepare both the app and bundled PostgreSQL image; repeat it after image-source changes. Lifecycle verification uses this preparation and does not establish fresh-image ordering for a single `up --build` command.
 
 ```powershell
-$env:SOURCE_PGPASSWORD='choose-a-local-password'
 docker compose -f docker-compose.node24.yml config --quiet
-docker compose -f docker-compose.node24.yml up -d --build --wait
+docker compose -f docker-compose.node24.yml build
+docker compose -f docker-compose.node24.yml up -d --wait
 docker compose -f docker-compose.node24.yml ps
 docker compose -f docker-compose.node24.yml --profile tools run --rm --no-deps source-test
 docker compose -f docker-compose.node24.yml --profile tools run --rm --no-deps source-readiness
-docker compose -f docker-compose.node24.yml logs source-migrate source-seed
+docker compose -f docker-compose.node24.yml logs --tail 100
 docker compose -f docker-compose.node24.yml down --remove-orphans
 ```
 
@@ -34,7 +34,8 @@ The API listens only on `127.0.0.1:3200` by default. The normal stack bypasses r
 
 ```powershell
 $env:SOURCE_REDIS_URL='redis://source-redis:6379'
-docker compose -f docker-compose.node24.yml --profile cache up -d --build --wait
+docker compose -f docker-compose.node24.yml --profile cache build
+docker compose -f docker-compose.node24.yml --profile cache up -d --wait
 $uri='http://127.0.0.1:3200/v1/artifacts/source-collections%3Asummary%3Alatest'
 curl.exe -sS -D - -o NUL $uri
 curl.exe -sS -D - -o NUL $uri
@@ -44,6 +45,6 @@ The first response should contain `x-knowledge-source-cache: miss`; the second s
 
 `docker compose down` preserves the named PostgreSQL and artifact volumes. `docker compose down -v` permanently deletes both sets of local data.
 
-Keep `SOURCE_PGPASSWORD` consistent while reusing an existing PostgreSQL volume. Changing it in Compose does not change the password already stored inside that database; migrate the database credential explicitly or recreate the local volume.
+Keep `PGPASSWORD` (or its `SOURCE_PGPASSWORD` override) consistent while reusing an existing PostgreSQL volume. Changing configuration does not change the password stored inside that database; coordinate a database credential change separately. Missing required settings fail at startup with key names, while `config`, `logs`, and `down` remain available. See [the entrypoint contract](docs/ENVIRONMENT-ENTRYPOINT.md) for remote configuration and alias precedence.
 
 This Compose stack is a reproducible local runtime and verification target. It is not, by itself, evidence of production readiness.

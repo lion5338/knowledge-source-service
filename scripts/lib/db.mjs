@@ -5,8 +5,10 @@ import { projectRoot } from "./paths.mjs";
 
 const { Pool } = pg;
 
-dotenv.config({ path: path.join(projectRoot, ".env.local") });
-dotenv.config({ path: path.join(projectRoot, ".env") });
+if (process.env.ENTRYPOINT_ENV_LOADED !== "1") {
+  dotenv.config({ path: path.join(projectRoot, ".env.local") });
+  dotenv.config({ path: path.join(projectRoot, ".env") });
+}
 
 export function getDatabaseConfig() {
   return {

@@ -9,6 +9,7 @@ RUN npm ci
 
 FROM deps AS builder
 COPY . .
+RUN npm ci --prefix scripts/runtime --omit=dev
 RUN node --version \
     && npm --version \
     && test "$(node --version)" = "v24.18.1" \
@@ -16,12 +17,15 @@ RUN node --version \
 RUN npm run lint
 RUN npm run openapi:validate
 RUN npm run build
+ENTRYPOINT ["sh", "/app/docker-entrypoint.sh"]
 
 FROM base AS runtime-deps
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev \
     && npm cache clean --force
+COPY scripts/runtime/package.json scripts/runtime/package-lock.json ./scripts/runtime/
+RUN npm ci --prefix scripts/runtime --omit=dev
 
 FROM base AS runner
 ENV NODE_ENV=production \
@@ -39,6 +43,9 @@ COPY --from=builder --chown=node:node /app/scripts/lib ./scripts/lib
 COPY --from=builder --chown=node:node /app/scripts/source-collections ./scripts/source-collections
 COPY --from=builder --chown=node:node /app/src/lib ./src/lib
 COPY --from=builder --chown=node:node /app/package.json ./package.json
+COPY --from=builder --chown=node:node /app/docker-entrypoint.sh ./docker-entrypoint.sh
+COPY --from=builder --chown=node:node /app/scripts/runtime/environment.mjs /app/scripts/runtime/adapters.mjs /app/scripts/runtime/launch.mjs /app/scripts/runtime/next-env.cjs ./scripts/runtime/
+COPY --from=runtime-deps --chown=node:node /app/scripts/runtime ./scripts/runtime
 
 RUN mkdir -p /app/storage/knowledge \
     && chown -R node:node /app/storage
@@ -48,3 +55,4 @@ EXPOSE 3200
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=5 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:3200/healthz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"]
 CMD ["node", "server.js"]
+ENTRYPOINT ["sh", "/app/docker-entrypoint.sh"]

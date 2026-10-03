@@ -4,6 +4,9 @@
 .env*
 .npmrc
 node_modules
+**/node_modules
+**/.env*
+**/.npmrc
 .next
 .next-build
 out

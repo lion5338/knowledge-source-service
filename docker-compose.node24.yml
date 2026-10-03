@@ -1,31 +1,75 @@
 name: knowledge-source-node24
 
 x-source-environment: &source-environment
-  PGHOST: source-db
-  PGPORT: 5432
-  PGDATABASE: ${SOURCE_PGDATABASE:-knowledge_source}
-  PGUSER: ${SOURCE_PGUSER:-knowledge_source_user}
-  PGPASSWORD: ${SOURCE_PGPASSWORD:?Set SOURCE_PGPASSWORD or use --env-file .env.compose}
-  KNOWLEDGE_SOURCE_STORAGE_ROOT: /app/storage/knowledge
-  ENABLE_TENANT: ${ENABLE_TENANT:-false}
-  ENABLE_K12: ${ENABLE_K12:-false}
-  DEFAULT_KNOWLEDGE: ${DEFAULT_KNOWLEDGE:-marble;learning_commons}
-  REDIS_URL: ${SOURCE_REDIS_URL:-}
+  ENTRYPOINT_COMPOSE_PROJECT: source
+  ENTRYPOINT_LOCAL_ENV: /run/project-config/.env.local
+  NODE_ENV:
+  ENV_FILE:
+  SSM_PATH:
+  SECRETS_ARN:
+  SECRET_JSON:
+  VAULT_SECRET_PATH:
+  VAULT_ADDR:
+  VAULT_TOKEN:
+  VAULT_NAMESPACE:
+  VAULT_KV_VERSION:
+  AWS_REGION:
+  AWS_DEFAULT_REGION:
+  AWS_ACCESS_KEY_ID:
+  AWS_SECRET_ACCESS_KEY:
+  AWS_SESSION_TOKEN:
+  AWS_PROFILE:
+  AWS_SHARED_CREDENTIALS_FILE:
+  AWS_CONFIG_FILE:
+  AWS_ROLE_ARN:
+  AWS_WEB_IDENTITY_TOKEN_FILE:
+  AWS_CONTAINER_CREDENTIALS_RELATIVE_URI:
+  AWS_CONTAINER_CREDENTIALS_FULL_URI:
+  AWS_CONTAINER_AUTHORIZATION_TOKEN:
+  AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE:
+  ENTRYPOINT_TIMEOUT_MS:
+  PGHOST:
+  PGPORT:
+  PGDATABASE:
+  PGUSER:
+  PGPASSWORD:
+  PGSSLMODE:
+  SOURCE_PGHOST:
+  SOURCE_PGPORT:
+  SOURCE_PGDATABASE:
+  SOURCE_PGUSER:
+  SOURCE_PGPASSWORD:
+  SOURCE_REDIS_URL:
+  REDIS_URL:
+  ENABLE_TENANT:
+  ENABLE_K12:
+  DEFAULT_KNOWLEDGE:
+  KNOWLEDGE_SOURCE_STORAGE_ROOT:
 
 x-app-image: &app-image
   image: question-generation/knowledge-source-service:node24
 
 services:
   source-db:
-    image: postgres:17.6-bookworm@sha256:f3bd19c606e442c3d7bdfa8002e03fe260a1023351e0ea4598032022b68dd6e3
+    image: question-generation/knowledge-source-postgres:node24
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres-node24
     environment:
-      POSTGRES_DB: ${SOURCE_PGDATABASE:-knowledge_source}
-      POSTGRES_USER: ${SOURCE_PGUSER:-knowledge_source_user}
-      POSTGRES_PASSWORD: ${SOURCE_PGPASSWORD:?Set SOURCE_PGPASSWORD or use --env-file .env.compose}
+      ENTRYPOINT_COMPOSE_PROJECT: source-db
+      ENTRYPOINT_LOCAL_ENV: /run/project-config/.env.local
+      ENV_FILE:
+      PGDATABASE:
+      PGUSER:
+      PGPASSWORD:
+      SOURCE_PGDATABASE:
+      SOURCE_PGUSER:
+      SOURCE_PGPASSWORD:
     volumes:
+      - .:/run/project-config:ro
       - source-db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD", "node", "/opt/source-runtime/postgres-healthcheck.mjs"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -62,6 +106,8 @@ services:
         condition: service_healthy
     init: true
     restart: "no"
+    volumes:
+      - .:/run/project-config:ro
 
   source-seed:
     <<: *app-image
@@ -72,6 +118,7 @@ services:
       source-migrate:
         condition: service_completed_successfully
     volumes:
+      - .:/run/project-config:ro
       - source-artifact-data:/app/storage/knowledge
     init: true
     restart: "no"
@@ -91,6 +138,7 @@ services:
     ports:
       - "127.0.0.1:${SOURCE_PORT:-3200}:3200"
     volumes:
+      - .:/run/project-config:ro
       - source-artifact-data:/app/storage/knowledge
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3200/readyz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"]
@@ -121,6 +169,8 @@ services:
         condition: service_completed_successfully
     init: true
     restart: "no"
+    volumes:
+      - .:/run/project-config:ro
 
   source-readiness:
     <<: *app-image
